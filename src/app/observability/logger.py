@@ -29,10 +29,3 @@ class LoggingObservabilityRecorder(ObservabilityRecorder):
     def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
         payload = json.dumps(details or {})
         self._logger.info("stage=%s details=%s", stage, payload)
-
-
-class NullObservabilityRecorder(ObservabilityRecorder):
-    """No-op recorder used by default in tests."""
-
-    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:  # noqa: D401
-        return None

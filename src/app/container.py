@@ -13,6 +13,7 @@ from .persistence.adapters.document_filesystem import FileSystemDocumentReposito
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .observability.logger import LoggingObservabilityRecorder
+from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
@@ -46,23 +47,23 @@ class AppContainer:
         self.observability = LoggingObservabilityRecorder()
 
         self.ingestion_service = IngestionService(
+            observability=self.observability,
             latency=stage_latency,
             repository=self.ingestion_repository,
-            observability=self.observability,
         )
         self.extraction_service = ExtractionService(
+            observability=self.observability,
             latency=stage_latency,
             parsers=self.document_parsers,
-            observability=self.observability,
         )
-        self.cleaning_service = CleaningService(latency=stage_latency, observability=self.observability)
-        self.chunking_service = ChunkingService(latency=stage_latency, observability=self.observability)
+        self.cleaning_service = CleaningService(observability=self.observability, latency=stage_latency)
+        self.chunking_service = ChunkingService(observability=self.observability, latency=stage_latency)
         self.enrichment_service = EnrichmentService(
+            observability=self.observability,
             latency=stage_latency,
             summary_generator=self.summary_generator,
-            observability=self.observability,
         )
-        self.vector_service = VectorService(latency=stage_latency, observability=self.observability)
+        self.vector_service = VectorService(observability=self.observability, latency=stage_latency)
 
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")
@@ -83,6 +84,14 @@ class AppContainer:
             self.pipeline_runner,
             document_repository=self.document_repository,
         )
+
+        # Use cases
+        self.upload_document_use_case = UploadDocumentUseCase(
+            runner=self.pipeline_runner,
+            repository=self.document_repository,
+        )
+        self.list_documents_use_case = ListDocumentsUseCase(repository=self.document_repository)
+        self.get_document_use_case = GetDocumentUseCase(repository=self.document_repository)
 
 
 @lru_cache

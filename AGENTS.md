@@ -34,7 +34,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| When implementation plan is ready | - Generate the code skeleton corresponding to the plan.<br>- Implement data models, services, adapters, and API endpoints with stub or production logic.<br>- Ensure module interfaces match the specification and are stable.<br>- Respect separation of concerns; the domain layer must not depend on adapters.<br>- Update `requirements.txt` minimally. | Commit(s) containing source code under `src/`, updated `requirements.txt`, and documentation as needed. | Planning agent |
+| When implementation plan is ready | - Generate the code skeleton corresponding to the plan.<br>- Implement data models, services, adapters, and API endpoints with stub or production logic.<br>- Ensure module interfaces match the specification and are stable.<br>- Respect separation of concerns; the domain layer must not depend on adapters.<br>- **Verify architectural compliance**: Run architectural tests (`tests/test_architecture.py`) to ensure dependency flow is correct and layers remain properly isolated.<br>- Ensure domain models only import standard library and Pydantic (no infrastructure dependencies).<br>- Ensure services only depend on ports/interfaces, not concrete adapters.<br>- Update `requirements.txt` minimally. | Commit(s) containing source code under `src/`, updated `requirements.txt`, and documentation as needed. **All architectural tests must pass before completion.** | Planning agent |
 
 ---
 
@@ -58,7 +58,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| Before merging new code | - Validate that the implementation matches the specification and planning documents.<br>- Review adherence to coding standards, linting, and test coverage.<br>- Identify inconsistencies or missing acceptance criteria and flag them for revision. | Review feedback as comments or change requests. | All prior agents |
+| Before merging new code | - Validate that the implementation matches the specification and planning documents.<br>- Review adherence to coding standards, linting, and test coverage.<br>- **Verify architectural compliance**: Ensure all architectural tests pass (`tests/test_architecture.py`) and dependency flow follows hexagonal architecture principles.<br>- Identify inconsistencies or missing acceptance criteria and flag them for revision. | Review feedback as comments or change requests. | All prior agents |
 
 ---
 

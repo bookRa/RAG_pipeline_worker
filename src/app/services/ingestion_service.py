@@ -6,7 +6,6 @@ import time
 
 from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
-from ..observability.logger import NullObservabilityRecorder
 from ..persistence.ports import IngestionRepository
 
 
@@ -15,13 +14,13 @@ class IngestionService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         latency: float = 0.0,
         repository: IngestionRepository | None = None,
-        observability: ObservabilityRecorder | None = None,
     ) -> None:
+        self.observability = observability
         self.latency = latency
         self.repository = repository
-        self.observability = observability or NullObservabilityRecorder()
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -29,24 +28,34 @@ class IngestionService:
 
     def ingest(self, document: Document, file_bytes: bytes | None = None) -> Document:
         self._simulate_latency()
+        updated_metadata = document.metadata.copy()
+        
         if self.repository and file_bytes:
             stored_path = self.repository.store(
                 document_id=document.id,
                 filename=document.filename,
                 data=file_bytes,
             )
-            document.metadata["raw_file_path"] = stored_path
-            document.metadata["raw_file_checksum"] = hashlib.sha256(file_bytes).hexdigest()
-        document.metadata.pop("raw_file_inline", None)
-        document.status = "ingested"
-        document.metadata["ingested_at"] = datetime.utcnow().isoformat()
+            updated_metadata["raw_file_path"] = stored_path
+            updated_metadata["raw_file_checksum"] = hashlib.sha256(file_bytes).hexdigest()
+        
+        updated_metadata.pop("raw_file_inline", None)
+        updated_metadata["ingested_at"] = datetime.utcnow().isoformat()
+        
+        updated_document = document.model_copy(
+            update={
+                "status": "ingested",
+                "metadata": updated_metadata,
+            }
+        )
+        
         self.observability.record_event(
             stage="ingestion",
             details={
-                "document_id": document.id,
-                "filename": document.filename,
-                "file_type": document.file_type,
-                "size_bytes": document.size_bytes,
+                "document_id": updated_document.id,
+                "filename": updated_document.filename,
+                "file_type": updated_document.file_type,
+                "size_bytes": updated_document.size_bytes,
             },
         )
-        return document
+        return updated_document

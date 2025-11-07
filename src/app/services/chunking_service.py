@@ -5,15 +5,14 @@ from uuid import uuid4
 
 from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Chunk, Document, Metadata
-from ..observability.logger import NullObservabilityRecorder
 
 
 class ChunkingService:
     """Splits document pages into smaller, retrievable chunks."""
 
-    def __init__(self, latency: float = 0.0, observability: ObservabilityRecorder | None = None) -> None:
+    def __init__(self, observability: ObservabilityRecorder, latency: float = 0.0) -> None:
+        self.observability = observability
         self.latency = latency
-        self.observability = observability or NullObservabilityRecorder()
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -22,6 +21,7 @@ class ChunkingService:
     def chunk(self, document: Document, size: int = 200, overlap: int = 50) -> Document:
         self._simulate_latency()
         normalized_overlap = min(overlap, size - 1) if size > 1 else 0
+        updated_document = document
 
         for page in document.pages:
             if page.chunks:
@@ -55,7 +55,7 @@ class ChunkingService:
                     end_offset=end,
                     metadata=metadata,
                 )
-                document.add_chunk(page.page_number, chunk)
+                updated_document = updated_document.add_chunk(page.page_number, chunk)
 
                 if end == len(text):
                     break
@@ -63,13 +63,13 @@ class ChunkingService:
                 start = max(end - normalized_overlap, 0)
                 chunk_index += 1
 
-        document.status = "chunked"
+        updated_document = updated_document.model_copy(update={"status": "chunked"})
         self.observability.record_event(
             stage="chunking",
             details={
-                "document_id": document.id,
-                "page_count": len(document.pages),
-                "chunk_count": sum(len(page.chunks) for page in document.pages),
+                "document_id": updated_document.id,
+                "page_count": len(updated_document.pages),
+                "chunk_count": sum(len(page.chunks) for page in updated_document.pages),
             },
         )
-        return document
+        return updated_document
