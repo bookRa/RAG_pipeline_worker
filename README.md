@@ -42,9 +42,19 @@ RAG_pipeline_worker/
 │       ├── __init__.py
 │       ├── main.py
 │       ├── config.py
+│       ├── container.py
 │       ├── domain/
 │       │   ├── __init__.py
-│       │   └── models.py
+│       │   ├── models.py
+│       │   └── run_models.py
+│       ├── application/
+│       │   ├── __init__.py
+│       │   ├── interfaces.py
+│       │   └── use_cases/
+│       │       ├── __init__.py
+│       │       ├── upload_document_use_case.py
+│       │       ├── list_documents_use_case.py
+│       │       └── get_document_use_case.py
 │       ├── services/
 │       │   ├── __init__.py
 │       │   ├── ingestion_service.py
@@ -52,19 +62,30 @@ RAG_pipeline_worker/
 │       │   ├── cleaning_service.py
 │       │   ├── chunking_service.py
 │       │   ├── enrichment_service.py
-│       │   └── vector_service.py
+│       │   ├── vector_service.py
+│       │   ├── pipeline_runner.py
+│       │   └── run_manager.py
 │       ├── adapters/
 │       │   ├── __init__.py
 │       │   ├── pdf_parser.py
 │       │   ├── docx_parser.py
 │       │   ├── ppt_parser.py
 │       │   └── llm_client.py
+│       ├── persistence/
+│       │   ├── __init__.py
+│       │   ├── ports.py
+│       │   └── adapters/
+│       │       ├── __init__.py
+│       │       ├── filesystem.py
+│       │       ├── document_filesystem.py
+│       │       └── ingestion_filesystem.py
 │       ├── observability/
 │       │   ├── __init__.py
 │       │   └── logger.py
 │       └── api/
 │           ├── __init__.py
-│           └── routers.py
+│           ├── routers.py
+│           └── dashboard.py
 │
 └── tests/
     ├── __init__.py
@@ -146,7 +167,10 @@ Execute the test suite with pytest:
 pytest -q
 ```
 
-Service behavior is covered in `tests/test_services.py`, while `tests/test_end_to_end.py` uploads a dummy document through the FastAPI stack to assert that pages and chunks are returned.
+Service behavior is covered in `tests/test_services.py`, while `tests/test_end_to_end.py` uploads a dummy document through the FastAPI stack to assert that pages and chunks are returned. Additional test suites include:
+
+- `tests/test_use_cases.py` - Tests for use case implementations
+- `tests/test_architecture.py` - Architecture compliance tests (dependency flow, import rules)
 
 ---
 
@@ -158,6 +182,15 @@ To keep the codebase maintainable and encourage parallel development:
 * **Follow the domain-driven, hexagonal architecture:**
   Core domain models and use cases should not depend on the details of file parsing or LLM implementation.
   Adaptors implement those details and can be swapped without touching the domain logic.
+  See `docs/ARCHITECTURE.md` for detailed architectural patterns and guidelines.
+
+* **Respect immutability:**
+  Domain models and services return new instances instead of mutating existing ones.
+  This ensures predictable behavior and easier testing. Use `model_copy()` for creating updated instances.
+
+* **Use dependency injection:**
+  All services accept dependencies via constructor parameters. Never import concrete adapters in services.
+  The `AppContainer` wires all dependencies at the composition root.
 
 * **Respect the data model:**
   The `models.py` definitions are the single source of truth for the structure of documents, pages, chunks, and metadata.

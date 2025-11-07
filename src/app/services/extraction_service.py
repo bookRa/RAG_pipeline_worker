@@ -6,7 +6,6 @@ from typing import Sequence
 
 from ..application.interfaces import DocumentParser, ObservabilityRecorder
 from ..domain.models import Document, Page
-from ..observability.logger import NullObservabilityRecorder
 
 
 class ExtractionService:
@@ -16,11 +15,11 @@ class ExtractionService:
         self,
         latency: float = 0.0,
         parsers: Sequence[DocumentParser] | None = None,
-        observability: ObservabilityRecorder | None = None,
+        observability: ObservabilityRecorder,
     ) -> None:
         self.latency = latency
         self.parsers = list(parsers or [])
-        self.observability = observability or NullObservabilityRecorder()
+        self.observability = observability
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -34,11 +33,12 @@ class ExtractionService:
         parser = self._resolve_parser(document.file_type)
         payload = file_bytes or self._load_raw_file(document)
         pages_added = 0
+        updated_document = document
 
         if parser and payload:
             page_texts = parser.parse(payload, document.filename)
             for index, text in enumerate(page_texts, start=1):
-                document.add_page(Page(document_id=document.id, page_number=index, text=text))
+                updated_document = updated_document.add_page(Page(document_id=document.id, page_number=index, text=text))
                 pages_added += 1
 
         if pages_added == 0:
@@ -46,19 +46,19 @@ class ExtractionService:
                 f"Extracted placeholder text for {document.filename}. "
                 f"Approximate size: {document.size_bytes} bytes."
             )
-            document.add_page(Page(document_id=document.id, page_number=1, text=placeholder_text))
+            updated_document = updated_document.add_page(Page(document_id=document.id, page_number=1, text=placeholder_text))
 
-        document.status = "extracted"
+        updated_document = updated_document.model_copy(update={"status": "extracted"})
 
         self.observability.record_event(
             stage="extraction",
             details={
-                "document_id": document.id,
-                "page_count": len(document.pages),
+                "document_id": updated_document.id,
+                "page_count": len(updated_document.pages),
                 "parser_used": parser.__class__.__name__ if parser else "placeholder",
             },
         )
-        return document
+        return updated_document
 
     def _resolve_parser(self, file_type: str) -> DocumentParser | None:
         normalized = file_type.lower()

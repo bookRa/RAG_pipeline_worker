@@ -12,7 +12,7 @@ from .adapters.ppt_parser import PptParserAdapter
 from .persistence.adapters.document_filesystem import FileSystemDocumentRepository
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
-from .observability.logger import LoggingObservabilityRecorder
+from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
@@ -83,6 +83,14 @@ class AppContainer:
             self.pipeline_runner,
             document_repository=self.document_repository,
         )
+
+        # Use cases
+        self.upload_document_use_case = UploadDocumentUseCase(
+            runner=self.pipeline_runner,
+            repository=self.document_repository,
+        )
+        self.list_documents_use_case = ListDocumentsUseCase(repository=self.document_repository)
+        self.get_document_use_case = GetDocumentUseCase(repository=self.document_repository)
 
 
 @lru_cache

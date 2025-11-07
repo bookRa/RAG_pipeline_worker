@@ -34,3 +34,11 @@ class ObservabilityRecorder(Protocol):
 
     def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
         """Emit a structured event for the given stage."""
+
+
+class NullObservabilityRecorder(ObservabilityRecorder):
+    """No-op recorder used by default in tests and as a fallback."""
+
+    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:  # noqa: D401
+        """No-op implementation that does nothing."""
+        return None

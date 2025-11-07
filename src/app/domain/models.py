@@ -59,20 +59,23 @@ class Document(BaseModel):
     pages: list[Page] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def add_page(self, page: Page) -> Page:
-        """Attach a page to the document, overwriting document_id if necessary."""
+    def add_page(self, page: Page) -> Document:
+        """Return a new document with the page added, overwriting document_id if necessary."""
 
         normalized_page = page.model_copy(update={"document_id": self.id})
         # Ensure page numbers are unique; replace page if it already exists
         existing_index = next((i for i, p in enumerate(self.pages) if p.page_number == normalized_page.page_number), None)
+        
         if existing_index is not None:
-            self.pages[existing_index] = normalized_page
+            updated_pages = self.pages.copy()
+            updated_pages[existing_index] = normalized_page
         else:
-            self.pages.append(normalized_page)
-        return normalized_page
+            updated_pages = [*self.pages, normalized_page]
+        
+        return self.model_copy(update={"pages": updated_pages})
 
-    def add_chunk(self, page_number: int, chunk: Chunk) -> Chunk:
-        """Attach a chunk to the appropriate page, creating the page if needed."""
+    def add_chunk(self, page_number: int, chunk: Chunk) -> Document:
+        """Return a new document with the chunk added to the appropriate page, creating the page if needed."""
 
         normalized_chunk = chunk.model_copy(
             update={
@@ -88,9 +91,19 @@ class Document(BaseModel):
             }
         )
 
-        page = next((p for p in self.pages if p.page_number == page_number), None)
-        if page is None:
-            page = Page(document_id=self.id, page_number=page_number, text="")
-            self.pages.append(page)
-        page.chunks.append(normalized_chunk)
-        return normalized_chunk
+        # Find or create the page
+        page_index = next((i for i, p in enumerate(self.pages) if p.page_number == page_number), None)
+        
+        if page_index is not None:
+            # Update existing page with new chunk
+            existing_page = self.pages[page_index]
+            updated_chunks = [*existing_page.chunks, normalized_chunk]
+            updated_page = existing_page.model_copy(update={"chunks": updated_chunks})
+            updated_pages = self.pages.copy()
+            updated_pages[page_index] = updated_page
+        else:
+            # Create new page with chunk
+            new_page = Page(document_id=self.id, page_number=page_number, text="", chunks=[normalized_chunk])
+            updated_pages = [*self.pages, new_page]
+        
+        return self.model_copy(update={"pages": updated_pages})

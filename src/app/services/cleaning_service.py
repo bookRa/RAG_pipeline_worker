@@ -6,7 +6,6 @@ from typing import Callable
 
 from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
-from ..observability.logger import NullObservabilityRecorder
 
 
 class CleaningService:
@@ -17,12 +16,12 @@ class CleaningService:
         profile: str = "default",
         normalizer: Callable[[str], str] | None = None,
         latency: float = 0.0,
-        observability: ObservabilityRecorder | None = None,
+        observability: ObservabilityRecorder,
     ) -> None:
         self.profile = profile
         self.normalizer = normalizer or self._default_normalizer
         self.latency = latency
-        self.observability = observability or NullObservabilityRecorder()
+        self.observability = observability
 
     @staticmethod
     def _default_normalizer(text: str) -> str:
@@ -32,9 +31,13 @@ class CleaningService:
         if self.latency > 0:
             time.sleep(self.latency)
         page_summaries: list[dict[str, int]] = []
+        updated_pages = []
+        
         for page in document.pages:
             cleaned_page_text = self.normalizer(page.text or "")
-            page.cleaned_text = cleaned_page_text
+            updated_page = page.model_copy(update={"cleaned_text": cleaned_page_text})
+            updated_pages.append(updated_page)
+            
             token_count = len(cleaned_page_text.split())
             diff_hash_input = f"{page.text or ''}::{cleaned_page_text}"
             diff_hash = hashlib.sha256(diff_hash_input.encode("utf-8")).hexdigest()
@@ -47,15 +50,24 @@ class CleaningService:
                 }
             )
 
-        document.metadata["cleaning_profile"] = self.profile
-        document.status = "cleaned"
+        updated_metadata = document.metadata.copy()
+        updated_metadata["cleaning_profile"] = self.profile
+        updated_metadata["cleaning_report"] = page_summaries
+        
+        updated_document = document.model_copy(
+            update={
+                "pages": updated_pages,
+                "status": "cleaned",
+                "metadata": updated_metadata,
+            }
+        )
+        
         self.observability.record_event(
             stage="cleaning",
             details={
-                "document_id": document.id,
+                "document_id": updated_document.id,
                 "profile": self.profile,
                 "pages_cleaned": len(page_summaries),
             },
         )
-        document.metadata["cleaning_report"] = page_summaries
-        return document
+        return updated_document
