@@ -29,47 +29,45 @@ Our skeleton implements these stages as separate services so that the team can e
 ## Repository Structure
 
 ```
-
-document_rag_pipeline_v0/
+RAG_pipeline_worker/
 │
-├── README.md               # Project overview and setup instructions
-├── AGENTS.md               # Definition of the AI agents and their responsibilities
-├── Round_1_Requirements.md # High-level product and engineering requirements for v0
-├── requirements.txt        # Minimal package dependencies for running the skeleton
+├── README.md
+├── AGENTS.md
+├── Round_1_Requirements.md
+├── requirements.txt
+├── .pre-commit-config.yaml
 │
 ├── src/
 │   └── app/
-│       ├── **init**.py
-│       ├── main.py                # FastAPI application with basic endpoints
-│       ├── config.py              # Configuration defaults
+│       ├── __init__.py
+│       ├── main.py
+│       ├── config.py
 │       ├── domain/
-│       │   ├── **init**.py
-│       │   └── models.py          # Core data models (Document, Page, Chunk, Metadata)
+│       │   ├── __init__.py
+│       │   └── models.py
 │       ├── services/
-│       │   ├── **init**.py
-│       │   ├── ingestion_service.py   # Handles file upload and storage
-│       │   ├── extraction_service.py  # Stub for text and structure extraction
-│       │   ├── chunking_service.py    # Stub for chunking strategies
-│       │   └── enrichment_service.py  # Stub for metadata enrichment
+│       │   ├── __init__.py
+│       │   ├── ingestion_service.py
+│       │   ├── extraction_service.py
+│       │   ├── chunking_service.py
+│       │   └── enrichment_service.py
 │       ├── adapters/
-│       │   ├── **init**.py
-│       │   ├── pdf_parser.py      # Placeholder adapter for PDF parsing
-│       │   ├── docx_parser.py     # Placeholder adapter for DOCX parsing
-│       │   ├── ppt_parser.py      # Placeholder adapter for PPT parsing
-│       │   └── llm_client.py      # Placeholder adapter for LLM-based enrichment
+│       │   ├── __init__.py
+│       │   ├── pdf_parser.py
+│       │   ├── docx_parser.py
+│       │   ├── ppt_parser.py
+│       │   └── llm_client.py
 │       ├── observability/
-│       │   ├── **init**.py
-│       │   └── logger.py          # Simple logging/tracing utilities
+│       │   ├── __init__.py
+│       │   └── logger.py
 │       └── api/
-│           ├── **init**.py
-│           └── routers.py         # API routes and dependency wiring
+│           ├── __init__.py
+│           └── routers.py
 │
 └── tests/
-├── **init**.py
-├── test_models.py             # Unit tests for data models
-├── test_services.py           # Unit tests for service stubs
-└── test_end_to_end.py         # Example end-to-end test using FastAPI TestClient
-
+    ├── __init__.py
+    ├── test_services.py
+    └── test_end_to_end.py
 ````
 
 ---
@@ -104,6 +102,8 @@ Execute the test suite with pytest:
 ```bash
 pytest -q
 ```
+
+Service behavior is covered in `tests/test_services.py`, while `tests/test_end_to_end.py` uploads a dummy document through the FastAPI stack to assert that pages and chunks are returned.
 
 ---
 
