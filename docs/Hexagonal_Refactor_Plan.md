@@ -94,21 +94,18 @@ we will rely on to prove the refactor is complete.
     and asserts vectors are identical.
   - Optionally add a snapshot test for stored `vector_samples`.
 
-## 7. Expand Test Coverage for Infrastructure Layers
-- **Problem:** No tests exist for persistence adapters, run manager orchestration,
-  or dashboard endpoints, so regressions in these critical hexagonal pieces go
-  unnoticed.
-- **Plan of Attack:**
-  - Add pytest suites for:
-    - `FileSystemPipelineRunRepository` (start/update/complete/fail flows).
-    - `PipelineRunManager` (progress callback & failure handling) using fakes.
-    - Dashboard routes (`/dashboard`, `/dashboard/upload`, polling endpoint)
-      with temporary artifact directories.
-  - Integrate these tests into CI to guard subsequent refactors.
-- **Test Plan:**
-  - Use `tmp_path` fixtures to isolate filesystem writes.
-  - Mock background tasks to run synchronously so tests remain fast.
-  - Assert rendered templates include stage data after a simulated run.
+## 7. Expand Test Coverage for Infrastructure Layers ✅
+- **What we fixed:** Added a dedicated `tests/test_run_manager.py` suite with
+  fake repositories/schedulers to verify that `PipelineRunManager` persists
+  stage updates, saves completed documents, and records failures. Strengthened
+  the dashboard tests to isolate artifacts/ingestion/document storage dirs, and
+  added a filesystem document repository test. These guard the persistence +
+  orchestration layers called out in the plan.
+- **Tests in place:** `tests/test_run_manager.py` (async + sync flows),
+  `tests/test_document_repository.py`, existing `tests/test_dashboard.py`
+  (covers GET/upload/poll), and `tests/test_persistence_filesystem.py` for the
+  pipeline run repository. Combined, they validate infra behavior without
+  touching production stores.
 
 ---
 

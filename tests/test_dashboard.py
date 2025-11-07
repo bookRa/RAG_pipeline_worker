@@ -7,6 +7,8 @@ import time
 TEST_ARTIFACTS_DIR = Path(__file__).resolve().parent / "tmp_artifacts"
 TEST_ARTIFACTS_DIR.mkdir(exist_ok=True)
 os.environ["RUN_ARTIFACTS_DIR"] = str(TEST_ARTIFACTS_DIR)
+os.environ["INGESTION_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "ingestion")
+os.environ["DOCUMENT_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "documents")
 
 
 def _clear_artifacts() -> None:

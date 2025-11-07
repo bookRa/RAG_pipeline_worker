@@ -15,6 +15,7 @@ class FileSystemDocumentRepository(DocumentRepository):
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, document: Document) -> None:
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         target = self.base_dir / f"{document.id}.json"
         with target.open("w", encoding="utf-8") as handle:
             json.dump(document.model_dump(mode="json"), handle, indent=2)
