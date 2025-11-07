@@ -15,22 +15,43 @@ Future iterations will add sophisticated logic, but the interfaces defined here 
 
 ---
 
-### 2. Text Extraction and Structuring
+### 2. Text Extraction
 - After ingestion, each document must be fully processed so that all textual content—body text, table data, captions, and scanned images—is available for downstream consumption.  
 - Placeholder implementations may simply return dummy text but must preserve the API.  
 - When extended, the extraction layer should use appropriate libraries (e.g., `pdfplumber` or `python-docx`) to handle different formats.  
 - The extraction process should produce a structured representation: a **Document** composed of one or more **Page** objects containing segments of text.  
-  This structure will later enable chunking at page or paragraph level.  
-- Extracted text should be cleaned by:
-  - Removing extra whitespace  
-  - Correcting obvious spelling errors  
-  - Normalizing case  
-  - Optionally removing stop words  
-- The original text must still be preserved for traceability.
+- This structure will later enable chunking at page or paragraph level.  
+- The extraction step should focus on producing a faithful, traceable raw representation of the document (including raw OCR output when applicable).  
+- The original/raw text must be preserved and carried forward so downstream stages can re-run or reconcile cleaning/structuring results.
+
+### 3. Text Structuring and Cleaning (separate service/API)
+- Text cleaning and higher-level structuring are a distinct concern from extraction and SHOULD be treated as a separate stage. This may be implemented in-process inside an adapter or as a dedicated service/API (synchronous REST endpoint or asynchronous job queue) depending on latency and fault-isolation trade-offs.
+- Purpose: normalize and prepare extracted text for chunking, indexing, and semantic operations while preserving an immutable copy of the raw extraction.
+- Minimal contract (example):
+  - Input: `{ document_id: str, page_number: int, segment_id: str, raw_text: str, language?: str, request_id?: str }`
+  - Output (200): `{ document_id: str, segment_id: str, cleaned_text: str, cleaned_tokens_count: int, cleaning_ops: ["whitespace", "spell_fix", "case_norm", ...], diff_hash?: str }`
+  - Error (4xx/5xx): structured error with `code`, `message`, and optional `retry_after` for transient failures.
+- Core cleaning operations (configurable):
+  - Remove extra whitespace and control characters
+  - Basic spelling correction (configurable aggressiveness)
+  - Normalizing case and unicode normalization
+  - Optional stop-word removal or stemming (configurable per downstream use-case)
+  - Language detection and early-exit for unsupported languages
+- Important implementation notes:
+  - The cleaning service MUST NOT overwrite the raw text. Store the cleaned output separately and link it to the raw segment (e.g., `raw_segment_id -> cleaned_segment_id`).
+  - Provide both cleaned text and a minimal audit/diff (e.g., a hash or small change-set) so consumers can reconcile changes.
+  - Expose configuration flags so callers can request different cleaning profiles (e.g., `preserve_case=true`, `spell_correction=off`).
+  - Consider offering both sync REST and async job modes for large documents or heavy processing (OCR post-processing, model-based normalization).
+- Edge cases and error modes to document in the spec:
+  - Empty or extremely short segments: return a no-op cleaned result but mark as `skipped`.
+  - Highly noisy OCR output: include a confidence score and a `needs_review` flag.
+  - Languages or encodings not supported: return a structured 4xx error with `unsupported_language`.
+  - Long-running transforms: expose `retry_after` or job-id for polling if using async.
+
 
 ---
 
-### 3. Chunking Strategy
+### 4. Chunking Strategy
 - The extraction output must be chunked into smaller, semantically meaningful units.  
 - Standard strategies include fixed-size tokens, sentence-based, paragraph-based, and semantic splits.  
 - The v0 implementation may use a naive fixed-size splitter but must expose a `chunk()` method that accepts content and returns a list of **Chunk** objects.  
@@ -39,7 +60,7 @@ Future iterations will add sophisticated logic, but the interfaces defined here 
 
 ---
 
-### 4. Metadata Enrichment
+### 5. Metadata Enrichment
 - Each chunk must be enriched with metadata that facilitates retrieval and grounding in responses.  
 - At minimum, metadata should include:
   - A unique ID  
@@ -53,7 +74,7 @@ Future iterations will add sophisticated logic, but the interfaces defined here 
 
 ---
 
-### 5. Observability and Tracing
+### 6. Observability and Tracing
 - The pipeline must record the inputs and outputs of each stage (ingestion, extraction, chunking, enrichment).  
 - In the v0 skeleton, logging statements or simple in-memory stores suffice.  
 - Future versions should integrate structured logging or tracing frameworks.  
@@ -61,7 +82,7 @@ Future iterations will add sophisticated logic, but the interfaces defined here 
 
 ---
 
-### 6. Frontend / Inspection
+### 7. Frontend / Inspection
 - A minimal web interface or API endpoints should allow users to upload documents and retrieve the processed structure and metadata.  
 - The initial FastAPI application can serve as this interface, exposing routes such as:
   - `/upload`
