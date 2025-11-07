@@ -1,0 +1,91 @@
+<div style="display:flex;flex-direction:column;gap:28px;">
+  {% set chunk_stage = run.result.stage('chunking') %}
+  <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;">
+    <div>
+      <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active run</div>
+      <h3 style="margin:6px 0 4px;font-size:1.6rem;">{{ run.filename }}</h3>
+      <p style="margin:0;font-size:0.95rem;color:#94a3b8;">Document ID: <code>{{ run.document.id }}</code></p>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:18px;font-size:0.95rem;color:#94a3b8;">
+      <span>Pages: {{ run.page_count }}</span>
+      <span>Chunks: {{ chunk_stage.details.chunk_count if chunk_stage else 0 }}</span>
+    </div>
+  </div>
+
+  {% if run.file_path %}
+    <div class="two-column">
+      <article>
+        <h4>Uploaded document preview</h4>
+        <iframe
+          title="Document preview"
+          class="preview"
+          src="{{ request.url_for('static', path=run.file_path) }}"
+        ></iframe>
+      </article>
+      <article>
+        <h4>Chunk highlights</h4>
+        {% set chunks = chunk_stage.details.pages if chunk_stage else [] %}
+        {% if chunks %}
+          <div class="chunk-list">
+            {% for page in chunks %}
+              <div class="chunk-card">
+                <div style="font-size:0.85rem;color:#94a3b8;">Page {{ page.page_number }} · {{ page.chunk_count }} chunks</div>
+                <ul style="list-style:none;padding:0;margin:10px 0 0;display:flex;flex-direction:column;gap:8px;font-size:0.85rem;">
+                  {% for chunk in page.chunks[:4] %}
+                    <li>
+                      <div style="font-family:monospace;font-size:0.75rem;color:#34d399;">{{ chunk.chunk_id[:10] }}…</div>
+                      <div style="margin:4px 0;color:#e0f2fe;">{{ chunk.text_preview }}{% if chunk.text_preview|length == 200 %}…{% endif %}</div>
+                      <div style="color:#94a3b8;">Offsets {{ chunk.offset[0] }}–{{ chunk.offset[1] }}</div>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p style="color:#94a3b8;">Chunk details will appear after the chunking stage emits data.</p>
+        {% endif %}
+      </article>
+    </div>
+  {% endif %}
+
+  <section>
+    <h4>Stage breakdown</h4>
+    <div class="stage-grid">
+      {% for stage in run.result.stages %}
+        <article class="stage-card">
+          <div class="stage-header">
+            <div class="stage-number">{{ loop.index }}</div>
+            <div>
+              <h5 style="margin:0;font-size:1.1rem;">{{ stage.title }}</h5>
+              <p style="margin:2px 0 0;font-size:0.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">{{ stage.name }}</p>
+            </div>
+          </div>
+          <pre>{{ stage.details | tojson(indent=2) }}</pre>
+          {% if stage.name == "enrichment" %}
+            <p style="font-size:0.9rem;color:#e0f2fe;">
+              Document summary:
+              {% if stage.details.document_summary %}
+                "{{ stage.details.document_summary }}"
+              {% else %}
+                Not available yet.
+              {% endif %}
+            </p>
+          {% elif stage.name == "cleaning" %}
+            <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
+          {% elif stage.name == "vectorization" %}
+            <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section style="font-size:0.9rem;color:#94a3b8;">
+    <h4>Need more fidelity?</h4>
+    <p style="margin-top:6px;">
+      Extend the cleaning or vectorization services and emit additional metadata; the dashboard automatically surfaces
+      whatever the pipeline stages expose.
+    </p>
+  </section>
+</div>

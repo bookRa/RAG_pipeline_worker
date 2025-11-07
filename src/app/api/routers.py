@@ -2,9 +2,12 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..domain.models import Document
 from ..services.chunking_service import ChunkingService
+from ..services.cleaning_service import CleaningService
 from ..services.enrichment_service import EnrichmentService
 from ..services.extraction_service import ExtractionService
 from ..services.ingestion_service import IngestionService
+from ..services.pipeline_runner import PipelineRunner
+from ..services.vector_service import VectorService
 
 router = APIRouter()
 
@@ -13,8 +16,18 @@ DOCUMENT_STORE: dict[str, Document] = {}
 
 ingestion_service = IngestionService()
 extraction_service = ExtractionService()
+cleaning_service = CleaningService()
 chunking_service = ChunkingService()
 enrichment_service = EnrichmentService()
+vector_service = VectorService()
+pipeline_runner = PipelineRunner(
+    ingestion=ingestion_service,
+    extraction=extraction_service,
+    cleaning=cleaning_service,
+    chunking=chunking_service,
+    enrichment=enrichment_service,
+    vectorization=vector_service,
+)
 
 
 @router.post("/upload")
@@ -34,10 +47,8 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
         metadata={"content_type": file.content_type},
     )
 
-    document = ingestion_service.ingest(document)
-    document = extraction_service.extract(document)
-    document = chunking_service.chunk(document)
-    document = enrichment_service.enrich(document)
+    result = pipeline_runner.run(document)
+    document = result.document
 
     DOCUMENT_STORE[document.id] = document
     return document.model_dump()

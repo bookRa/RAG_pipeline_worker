@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Dashboard{% endblock %}
+
+{% block content %}
+<section class="layout">
+  <div class="panel upload-panel">
+    <div>
+      <h2>Manual test harness</h2>
+      <p style="color:#94a3b8;font-size:0.95rem;">
+        Upload <code>tests/test_document.pdf</code> or any supported file to trace each pipeline stage in one place.
+      </p>
+    </div>
+    <form
+      id="dashboard-upload-form"
+      hx-post="/dashboard/upload"
+      hx-target="#run-output"
+      hx-swap="innerHTML"
+      hx-indicator="#upload-indicator"
+      enctype="multipart/form-data"
+      class="form"
+      style="display:flex;flex-direction:column;gap:16px;"
+    >
+      <div class="form-group">
+        <label for="file">Document</label>
+        <input
+          required
+          type="file"
+          id="file"
+          name="file"
+          accept=".pdf,.docx,.ppt,.pptx"
+        />
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button type="submit" class="primary">Run pipeline</button>
+        <span id="upload-indicator">Processing…</span>
+      </div>
+    </form>
+    <div id="run-output">
+      {% if latest_run %}
+        {% include "partials/run_details.html" with context %}
+      {% else %}
+        <p style="color:#94a3b8;">No runs yet. Upload a document to inspect ingestion, extraction, chunking, and enrichment artifacts.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <aside class="panel history-panel">
+    <div>
+      <h3>Recent runs</h3>
+      <p style="color:#94a3b8;font-size:0.9rem;">The dashboard keeps the last {{ runs|length }} runs in memory for quick comparisons.</p>
+    </div>
+    <ol class="history-list">
+      {% for run in runs %}
+        <li class="history-card">
+          <div style="font-weight:600;">{{ run.filename }}</div>
+          <div style="font-size:0.85rem;color:#94a3b8;">
+            Pages: {{ run.page_count }} · Doc ID: <code>{{ run.document.id[:8] }}</code>
+          </div>
+        </li>
+      {% else %}
+        <li style="color:#94a3b8;">No runs yet</li>
+      {% endfor %}
+    </ol>
+    <p style="font-size:0.8rem;color:#94a3b8;margin-top:16px;">
+      Runs reset when the server restarts. Persisting history can be added later if needed.
+    </p>
+  </aside>
+</section>
+{% endblock %}

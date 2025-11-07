@@ -1,8 +1,10 @@
 from src.app.domain.models import Document
 from src.app.services.chunking_service import ChunkingService
+from src.app.services.cleaning_service import CleaningService
 from src.app.services.enrichment_service import EnrichmentService
 from src.app.services.extraction_service import ExtractionService
 from src.app.services.ingestion_service import IngestionService
+from src.app.services.vector_service import VectorService
 
 
 def build_document() -> Document:
@@ -51,3 +53,31 @@ def test_enrichment_adds_summary_and_document_summary():
     assert chunk.metadata is not None
     assert chunk.metadata.summary
     assert document.summary
+
+
+def test_cleaning_normalizes_text():
+    ingestion = IngestionService()
+    extraction = ExtractionService()
+    cleaning = CleaningService()
+
+    document = cleaning.clean(extraction.extract(ingestion.ingest(build_document())))
+    assert document.status == "cleaned"
+    assert all("  " not in page.text for page in document.pages)
+    assert "cleaning_report" in document.metadata
+
+
+def test_vectorization_attaches_vectors():
+    ingestion = IngestionService()
+    extraction = ExtractionService()
+    cleaning = CleaningService()
+    chunking = ChunkingService()
+    vectorization = VectorService(dimension=4)
+
+    document = vectorization.vectorize(
+        chunking.chunk(cleaning.clean(extraction.extract(ingestion.ingest(build_document()))))
+    )
+
+    chunk = document.pages[0].chunks[0]
+    assert chunk.metadata is not None
+    assert "vector" in chunk.metadata.extra
+    assert len(chunk.metadata.extra["vector"]) == 4

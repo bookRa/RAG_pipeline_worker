@@ -6,3 +6,4 @@ python-multipart
 pytest
 requests
 httpx
+jinja2

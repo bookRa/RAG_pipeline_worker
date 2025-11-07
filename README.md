@@ -49,8 +49,10 @@ RAG_pipeline_worker/
 │       │   ├── __init__.py
 │       │   ├── ingestion_service.py
 │       │   ├── extraction_service.py
+│       │   ├── cleaning_service.py
 │       │   ├── chunking_service.py
-│       │   └── enrichment_service.py
+│       │   ├── enrichment_service.py
+│       │   └── vector_service.py
 │       ├── adapters/
 │       │   ├── __init__.py
 │       │   ├── pdf_parser.py
@@ -94,6 +96,19 @@ uvicorn src.app.main:app --reload
 ```
 
 Navigate to `http://localhost:8000/docs` for auto-generated API documentation.
+
+### Use the Developer Dashboard
+
+The dashboard at `http://localhost:8000/dashboard` is designed for manual QA:
+
+1. Upload `tests/test_document.pdf` (or any PDF/DOCX/PPT) via the form.
+2. The pipeline runs end-to-end and streams its structured stage payloads into the dashboard.
+3. Inspect the embedded document preview alongside the extraction, chunking, and enrichment cards. Each card shows the JSON output emitted by that service, including page/chunk counts and metadata offsets.
+4. The last 10 runs are kept in memory for comparison. Restarting the server clears the history by design.
+
+Stage cards are rendered vertically with numbered markers so you can follow the exact flow: **(1) ingestion → (2) extraction → (3) cleaning → (4) chunking → (5) enrichment → (6) vectorization**. Each card reflects whatever payload the corresponding service emits, so extending a service automatically enriches the dashboard.
+
+See `docs/Dashboard_Requirements.md` for the specification that governs this view and guidance on how future services should publish data to it.
 
 ### Run the Tests
 
