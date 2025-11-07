@@ -11,13 +11,13 @@ class EnrichmentService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         latency: float = 0.0,
         summary_generator: SummaryGenerator | None = None,
-        observability: ObservabilityRecorder,
     ) -> None:
+        self.observability = observability
         self.latency = latency
         self.summary_generator = summary_generator
-        self.observability = observability
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:

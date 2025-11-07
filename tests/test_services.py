@@ -32,7 +32,7 @@ def test_ingestion_updates_status():
 
 def test_ingestion_persists_raw_file(tmp_path):
     repository = FileSystemIngestionRepository(tmp_path)
-    service = IngestionService(repository=repository, observability=build_null_observability())
+    service = IngestionService(observability=build_null_observability(), repository=repository)
     document = build_document()
     raw_payload = b"Example PDF bytes"
 
@@ -63,7 +63,7 @@ def test_extraction_uses_parser_with_file_bytes():
 
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(parsers=[StubParser()], observability=observability)
+    extraction = ExtractionService(observability=observability, parsers=[StubParser()])
     document = ingestion.ingest(build_document())
 
     result = extraction.extract(document, file_bytes=b"payload")
@@ -80,7 +80,7 @@ def test_extraction_reads_from_stored_path(tmp_path):
             return [file_bytes.decode("utf-8")]
 
     parser = PathParser()
-    extraction = ExtractionService(parsers=[parser], observability=build_null_observability())
+    extraction = ExtractionService(observability=build_null_observability(), parsers=[parser])
     document = build_document()
     stored = tmp_path / "doc.pdf"
     stored.write_bytes(b"Stored bytes")
@@ -129,7 +129,7 @@ def test_enrichment_uses_summary_generator():
     ingestion = IngestionService(observability=observability)
     extraction = ExtractionService(observability=observability)
     chunking = ChunkingService(observability=observability)
-    enrichment = EnrichmentService(summary_generator=StubSummaryGenerator(), observability=observability)
+    enrichment = EnrichmentService(observability=observability, summary_generator=StubSummaryGenerator())
 
     document = enrichment.enrich(
         chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=30, overlap=5)
@@ -165,7 +165,7 @@ def test_vectorization_attaches_vectors():
     extraction = ExtractionService(observability=observability)
     cleaning = CleaningService(observability=observability)
     chunking = ChunkingService(observability=observability)
-    vectorization = VectorService(dimension=4, observability=observability)
+    vectorization = VectorService(observability=observability, dimension=4)
 
     document = vectorization.vectorize(
         chunking.chunk(cleaning.clean(extraction.extract(ingestion.ingest(build_document()))))

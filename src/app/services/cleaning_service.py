@@ -13,15 +13,15 @@ class CleaningService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         profile: str = "default",
         normalizer: Callable[[str], str] | None = None,
         latency: float = 0.0,
-        observability: ObservabilityRecorder,
     ) -> None:
+        self.observability = observability
         self.profile = profile
         self.normalizer = normalizer or self._default_normalizer
         self.latency = latency
-        self.observability = observability
 
     @staticmethod
     def _default_normalizer(text: str) -> str:

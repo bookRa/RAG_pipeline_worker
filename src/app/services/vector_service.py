@@ -24,15 +24,15 @@ class VectorService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         dimension: int = 8,
         seed: int = 42,
         latency: float = 0.0,
-        observability: ObservabilityRecorder,
     ) -> None:
+        self.observability = observability
         self.dimension = dimension
         self.random = Random(seed)
         self.latency = latency
-        self.observability = observability
 
     def _vector_for_text(self, text: str) -> list[float]:
         self.random.seed(hash(text) & 0xFFFFFFFF)

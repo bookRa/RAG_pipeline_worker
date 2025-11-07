@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from ..domain.models import Document
-from ..persistence.ports import DocumentRepository
-from ..services.pipeline_runner import PipelineRunner
+from ...domain.models import Document
+from ...persistence.ports import DocumentRepository
+from ...services.pipeline_runner import PipelineRunner
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "ppt", "pptx"}
 

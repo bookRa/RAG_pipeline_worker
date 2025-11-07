@@ -13,13 +13,13 @@ class ExtractionService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         latency: float = 0.0,
         parsers: Sequence[DocumentParser] | None = None,
-        observability: ObservabilityRecorder,
     ) -> None:
+        self.observability = observability
         self.latency = latency
         self.parsers = list(parsers or [])
-        self.observability = observability
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:

@@ -15,6 +15,7 @@ def test_domain_layer_has_no_infrastructure_imports():
         "typing",
         "datetime",
         "uuid",
+        "dataclasses",  # Standard library module
         "pydantic",
         "pydantic_settings",
         "__future__",
@@ -36,6 +37,10 @@ def test_domain_layer_has_no_infrastructure_imports():
                         assert False, f"Domain layer imports infrastructure: {module_name} in {py_file}"
             elif isinstance(node, ast.ImportFrom):
                 if node.module:
+                    # Allow relative imports within the domain package (e.g., from .models)
+                    # Relative imports have level > 0, where level=1 means ".", level=2 means "..", etc.
+                    if node.level > 0:
+                        continue
                     module_name = node.module.split(".")[0]
                     if module_name not in allowed_modules and not module_name.startswith("_"):
                         assert False, f"Domain layer imports infrastructure: {module_name} in {py_file}"

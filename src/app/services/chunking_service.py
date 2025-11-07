@@ -10,9 +10,9 @@ from ..domain.models import Chunk, Document, Metadata
 class ChunkingService:
     """Splits document pages into smaller, retrievable chunks."""
 
-    def __init__(self, latency: float = 0.0, observability: ObservabilityRecorder) -> None:
-        self.latency = latency
+    def __init__(self, observability: ObservabilityRecorder, latency: float = 0.0) -> None:
         self.observability = observability
+        self.latency = latency
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:

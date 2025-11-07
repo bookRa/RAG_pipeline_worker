@@ -14,13 +14,13 @@ class IngestionService:
 
     def __init__(
         self,
+        observability: ObservabilityRecorder,
         latency: float = 0.0,
         repository: IngestionRepository | None = None,
-        observability: ObservabilityRecorder,
     ) -> None:
+        self.observability = observability
         self.latency = latency
         self.repository = repository
-        self.observability = observability
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:

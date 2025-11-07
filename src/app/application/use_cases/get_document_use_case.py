@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from ..domain.models import Document
-from ..persistence.ports import DocumentRepository
+from ...domain.models import Document
+from ...persistence.ports import DocumentRepository
 
 
 class GetDocumentUseCase:
