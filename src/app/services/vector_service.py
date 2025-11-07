@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from random import Random
 
 from ..domain.models import Document
@@ -9,15 +10,18 @@ from ..observability.logger import log_event
 class VectorService:
     """Creates deterministic placeholder vectors for chunks."""
 
-    def __init__(self, dimension: int = 8, seed: int = 42) -> None:
+    def __init__(self, dimension: int = 8, seed: int = 42, latency: float = 0.0) -> None:
         self.dimension = dimension
         self.random = Random(seed)
+        self.latency = latency
 
     def _vector_for_text(self, text: str) -> list[float]:
         self.random.seed(hash(text) & 0xFFFFFFFF)
         return [round(self.random.random(), 3) for _ in range(self.dimension)]
 
     def vectorize(self, document: Document) -> Document:
+        if self.latency > 0:
+            time.sleep(self.latency)
         vector_attached = 0
         sample_vectors: list[dict[str, object]] = []
         for page in document.pages:

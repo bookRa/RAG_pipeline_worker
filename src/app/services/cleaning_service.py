@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Callable
 
 from ..domain.models import Document
@@ -9,15 +10,18 @@ from ..observability.logger import log_event
 class CleaningService:
     """Normalizes text and records cleaning metadata."""
 
-    def __init__(self, profile: str = "default", normalizer: Callable[[str], str] | None = None) -> None:
+    def __init__(self, profile: str = "default", normalizer: Callable[[str], str] | None = None, latency: float = 0.0) -> None:
         self.profile = profile
         self.normalizer = normalizer or self._default_normalizer
+        self.latency = latency
 
     @staticmethod
     def _default_normalizer(text: str) -> str:
         return " ".join(text.split())
 
     def clean(self, document: Document) -> Document:
+        if self.latency > 0:
+            time.sleep(self.latency)
         page_summaries: list[dict[str, int]] = []
         for page in document.pages:
             cleaned_page_text = self.normalizer(page.text or "")

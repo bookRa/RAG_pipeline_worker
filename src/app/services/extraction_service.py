@@ -1,3 +1,5 @@
+import time
+
 from ..domain.models import Document, Page
 from ..observability.logger import log_event
 
@@ -5,7 +7,15 @@ from ..observability.logger import log_event
 class ExtractionService:
     """Converts an ingested document into a structured set of pages."""
 
+    def __init__(self, latency: float = 0.0) -> None:
+        self.latency = latency
+
+    def _simulate_latency(self) -> None:
+        if self.latency > 0:
+            time.sleep(self.latency)
+
     def extract(self, document: Document) -> Document:
+        self._simulate_latency()
         if document.pages:
             return document
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import datetime
+from time import perf_counter
+from typing import Any, Callable, Iterable
 
 from ..domain.models import Document
 from ..observability.logger import log_event
@@ -18,6 +20,8 @@ class PipelineStage:
     name: str
     title: str
     details: dict[str, Any] = field(default_factory=dict)
+    duration_ms: float | None = None
+    completed_at: datetime | None = None
 
 
 @dataclass
@@ -51,11 +55,31 @@ class PipelineRunner:
         self.enrichment = enrichment
         self.vectorization = vectorization
 
-    def run(self, document: Document) -> PipelineResult:
+    STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
+        ("ingestion", "Ingestion"),
+        ("extraction", "Extraction"),
+        ("cleaning", "Cleaning"),
+        ("chunking", "Chunking"),
+        ("enrichment", "Enrichment"),
+        ("vectorization", "Vectorization"),
+    )
+
+    def run(
+        self,
+        document: Document,
+        progress_callback: Callable[[PipelineStage, Document], None] | None = None,
+    ) -> PipelineResult:
         stages: list[PipelineStage] = []
 
+        def register_stage(stage: PipelineStage) -> None:
+            stage.completed_at = datetime.utcnow()
+            stages.append(stage)
+            if progress_callback:
+                progress_callback(stage, document)
+
+        stage_start = perf_counter()
         document = self.ingestion.ingest(document)
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="ingestion",
                 title="Ingestion",
@@ -65,11 +89,13 @@ class PipelineRunner:
                     "file_type": document.file_type,
                     "size_bytes": document.size_bytes,
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 
+        stage_start = perf_counter()
         document = self.extraction.extract(document)
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="extraction",
                 title="Extraction",
@@ -83,12 +109,14 @@ class PipelineRunner:
                         for page in document.pages
                     ],
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 
+        stage_start = perf_counter()
         document = self.cleaning.clean(document)
         cleaning_report = document.metadata.get("cleaning_report", [])
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="cleaning",
                 title="Cleaning",
@@ -96,11 +124,13 @@ class PipelineRunner:
                     "profile": self.cleaning.profile,
                     "pages": cleaning_report,
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 
+        stage_start = perf_counter()
         document = self.chunking.chunk(document)
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="chunking",
                 title="Chunking",
@@ -125,11 +155,13 @@ class PipelineRunner:
                         for page in document.pages
                     ],
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 
+        stage_start = perf_counter()
         document = self.enrichment.enrich(document)
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="enrichment",
                 title="Enrichment",
@@ -145,11 +177,13 @@ class PipelineRunner:
                         for chunk in page.chunks
                     ],
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 
+        stage_start = perf_counter()
         document = self.vectorization.vectorize(document)
-        stages.append(
+        register_stage(
             PipelineStage(
                 name="vectorization",
                 title="Vectorization",
@@ -158,6 +192,7 @@ class PipelineRunner:
                     "vector_count": sum(len(page.chunks) for page in document.pages),
                     "sample_vectors": document.metadata.get("vector_samples", []),
                 },
+                duration_ms=(perf_counter() - stage_start) * 1000,
             )
         )
 

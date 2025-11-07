@@ -1,18 +1,25 @@
-<div style="display:flex;flex-direction:column;gap:28px;">
-  {% set chunk_stage = run.result.stage('chunking') %}
+<div style="display:flex;flex-direction:column;gap:28px;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
+  {% set chunk_stage = run.get_stage('chunking') %}
   <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;">
     <div>
       <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active run</div>
       <h3 style="margin:6px 0 4px;font-size:1.6rem;">{{ run.filename }}</h3>
-      <p style="margin:0;font-size:0.95rem;color:#94a3b8;">Document ID: <code>{{ run.document.id }}</code></p>
+      <p style="margin:0;font-size:0.95rem;color:#94a3b8;">Run ID: <code>{{ run.id }}</code></p>
     </div>
-    <div style="margin-left:auto;display:flex;gap:18px;font-size:0.95rem;color:#94a3b8;">
+    <div style="margin-left:auto;display:flex;gap:18px;font-size:0.95rem;color:#94a3b8;align-items:center;">
       <span>Pages: {{ run.page_count }}</span>
       <span>Chunks: {{ chunk_stage.details.chunk_count if chunk_stage else 0 }}</span>
+      <span style="padding:6px 12px;border-radius:999px;border:1px solid rgba(148,163,184,0.3);text-transform:capitalize;">{{ run.status }}</span>
     </div>
   </div>
 
-  {% if run.file_path %}
+  {% if run.status == "failed" and run.error_message %}
+    <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.4);border-radius:12px;padding:12px;color:#fecdd3;">
+      {{ run.error_message }}
+    </div>
+  {% endif %}
+
+  {% if run.file_path and run.document %}
     <div class="two-column">
       <article>
         <h4>Uploaded document preview</h4>
@@ -52,29 +59,39 @@
   <section>
     <h4>Stage breakdown</h4>
     <div class="stage-grid">
-      {% for stage in run.result.stages %}
-        <article class="stage-card">
+      {% for stage_name, stage_title in stage_sequence %}
+        {% set stage = run.get_stage(stage_name) %}
+        <article class="stage-card" style="opacity: {{ 1 if stage else 0.6 }};">
           <div class="stage-header">
             <div class="stage-number">{{ loop.index }}</div>
             <div>
-              <h5 style="margin:0;font-size:1.1rem;">{{ stage.title }}</h5>
-              <p style="margin:2px 0 0;font-size:0.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">{{ stage.name }}</p>
+              <h5 style="margin:0;font-size:1.1rem;">{{ stage.title if stage else stage_title }}</h5>
+              <p style="margin:2px 0 0;font-size:0.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">{{ stage_name }}</p>
             </div>
+            {% if stage and stage.duration_ms %}
+              <span style="margin-left:auto;font-size:0.85rem;color:#94a3b8;">{{ '%.0f'|format(stage.duration_ms) }} ms</span>
+            {% else %}
+              <span style="margin-left:auto;font-size:0.85rem;color:#94a3b8;">Pending…</span>
+            {% endif %}
           </div>
-          <pre>{{ stage.details | tojson(indent=2) }}</pre>
-          {% if stage.name == "enrichment" %}
-            <p style="font-size:0.9rem;color:#e0f2fe;">
-              Document summary:
-              {% if stage.details.document_summary %}
-                "{{ stage.details.document_summary }}"
-              {% else %}
-                Not available yet.
-              {% endif %}
-            </p>
-          {% elif stage.name == "cleaning" %}
-            <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
-          {% elif stage.name == "vectorization" %}
-            <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
+          {% if stage %}
+            <pre>{{ stage.details | tojson(indent=2) }}</pre>
+            {% if stage.name == "enrichment" %}
+              <p style="font-size:0.9rem;color:#e0f2fe;">
+                Document summary:
+                {% if stage.details.document_summary %}
+                  "{{ stage.details.document_summary }}"
+                {% else %}
+                  Not available yet.
+                {% endif %}
+              </p>
+            {% elif stage.name == "cleaning" %}
+              <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
+            {% elif stage.name == "vectorization" %}
+              <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
+            {% endif %}
+          {% else %}
+            <p style="color:#94a3b8;font-size:0.9rem;">Waiting for {{ stage_title }}…</p>
           {% endif %}
         </article>
       {% endfor %}
@@ -84,8 +101,8 @@
   <section style="font-size:0.9rem;color:#94a3b8;">
     <h4>Need more fidelity?</h4>
     <p style="margin-top:6px;">
-      Extend the cleaning or vectorization services and emit additional metadata; the dashboard automatically surfaces
-      whatever the pipeline stages expose.
+      Extend any pipeline stage and emit additional metadata; the dashboard automatically surfaces it in the numbered cards as
+      soon as the stage completes.
     </p>
   </section>
 </div>

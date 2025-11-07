@@ -1,3 +1,5 @@
+import time
+
 from ..domain.models import Document
 from ..observability.logger import log_event
 
@@ -5,7 +7,15 @@ from ..observability.logger import log_event
 class EnrichmentService:
     """Adds lightweight metadata such as titles and summaries to chunks."""
 
+    def __init__(self, latency: float = 0.0) -> None:
+        self.latency = latency
+
+    def _simulate_latency(self) -> None:
+        if self.latency > 0:
+            time.sleep(self.latency)
+
     def enrich(self, document: Document) -> Document:
+        self._simulate_latency()
         summaries: list[str] = []
         for page in document.pages:
             for chunk in page.chunks:

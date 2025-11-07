@@ -5,7 +5,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}RAG Pipeline Dashboard{% endblock %}</title>
-  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
   <style>
     :root {
       color-scheme: dark;
@@ -119,13 +118,14 @@
     button.primary:hover {
       opacity: 0.9;
     }
+    button.primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
     #upload-indicator {
       display: none;
       font-size: 0.9rem;
       color: #94a3b8;
-    }
-    form.htmx-request #upload-indicator {
-      display: inline-block;
     }
     .history-list {
       list-style: none;
@@ -235,8 +235,114 @@
 
   <footer>
     <span>Specification-driven pipeline scaffold</span>
-    <span>FastAPI + HTMX</span>
+    <span>FastAPI + Vanilla JS</span>
   </footer>
+  <script>
+    const DashboardRuns = {
+      watchers: new Map(),
+      start(container) {
+        if (!container) {
+          return;
+        }
+        const target = container.querySelector('[data-run-id]');
+        if (!target) {
+          return;
+        }
+        const runId = target.dataset.runId;
+        const status = target.dataset.runStatus;
+        if (!runId) {
+          return;
+        }
+        if (status === 'completed' || status === 'failed') {
+          this.stop(runId);
+          return;
+        }
+        if (this.watchers.has(runId)) {
+          return;
+        }
+
+        const poll = async () => {
+          try {
+            const response = await fetch(`/dashboard/runs/${runId}/fragment`);
+            if (!response.ok) {
+              throw new Error('Polling failed');
+            }
+            const html = await response.text();
+            container.innerHTML = html;
+            const nextTarget = container.querySelector('[data-run-id]');
+            if (!nextTarget) {
+              this.stop(runId);
+              return;
+            }
+            const nextStatus = nextTarget.dataset.runStatus;
+            if (nextStatus === 'completed' || nextStatus === 'failed') {
+              this.stop(runId);
+            }
+          } catch (error) {
+            console.error(error);
+            this.stop(runId);
+          }
+        };
+
+        const interval = setInterval(poll, 1500);
+        this.watchers.set(runId, interval);
+        poll();
+      },
+      stop(runId) {
+        const interval = this.watchers.get(runId);
+        if (interval) {
+          clearInterval(interval);
+          this.watchers.delete(runId);
+        }
+      },
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('dashboard-upload-form');
+      const output = document.getElementById('run-output');
+      const indicator = document.getElementById('upload-indicator');
+      if (!form || !output) {
+        return;
+      }
+      const submitButton = form.querySelector('button[type="submit"]');
+      const setLoading = (state) => {
+        if (indicator) {
+          indicator.style.display = state ? 'inline-block' : 'none';
+        }
+        if (submitButton) {
+          submitButton.disabled = state;
+        }
+      };
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const action = form.getAttribute('action') || '/dashboard/upload';
+        const formData = new FormData(form);
+        setLoading(true);
+        try {
+          const response = await fetch(action, {
+            method: 'POST',
+            body: formData,
+          });
+          const html = await response.text();
+          if (!response.ok) {
+            throw new Error('Upload failed');
+          }
+          output.innerHTML = html;
+          DashboardRuns.start(output);
+        } catch (error) {
+          console.error(error);
+          alert('Upload failed. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      DashboardRuns.start(output);
+    });
+
+    window.DashboardRuns = DashboardRuns;
+  </script>
 </body>
 
 </html>

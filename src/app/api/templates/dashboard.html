@@ -12,10 +12,8 @@
     </div>
     <form
       id="dashboard-upload-form"
-      hx-post="/dashboard/upload"
-      hx-target="#run-output"
-      hx-swap="innerHTML"
-      hx-indicator="#upload-indicator"
+      action="/dashboard/upload"
+      method="post"
       enctype="multipart/form-data"
       class="form"
       style="display:flex;flex-direction:column;gap:16px;"
@@ -54,7 +52,7 @@
         <li class="history-card">
           <div style="font-weight:600;">{{ run.filename }}</div>
           <div style="font-size:0.85rem;color:#94a3b8;">
-            Pages: {{ run.page_count }} · Doc ID: <code>{{ run.document.id[:8] }}</code>
+            Pages: {{ run.page_count }} · Status: {{ run.status }}
           </div>
         </li>
       {% else %}

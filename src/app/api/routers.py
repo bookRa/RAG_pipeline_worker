@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..domain.models import Document
@@ -14,12 +16,14 @@ router = APIRouter()
 ALLOWED_EXTENSIONS = {"pdf", "docx", "ppt", "pptx"}
 DOCUMENT_STORE: dict[str, Document] = {}
 
-ingestion_service = IngestionService()
-extraction_service = ExtractionService()
-cleaning_service = CleaningService()
-chunking_service = ChunkingService()
-enrichment_service = EnrichmentService()
-vector_service = VectorService()
+PIPELINE_STAGE_LATENCY = float(os.getenv("PIPELINE_STAGE_LATENCY", "0.05"))
+
+ingestion_service = IngestionService(latency=PIPELINE_STAGE_LATENCY)
+extraction_service = ExtractionService(latency=PIPELINE_STAGE_LATENCY)
+cleaning_service = CleaningService(latency=PIPELINE_STAGE_LATENCY)
+chunking_service = ChunkingService(latency=PIPELINE_STAGE_LATENCY)
+enrichment_service = EnrichmentService(latency=PIPELINE_STAGE_LATENCY)
+vector_service = VectorService(latency=PIPELINE_STAGE_LATENCY)
 pipeline_runner = PipelineRunner(
     ingestion=ingestion_service,
     extraction=extraction_service,

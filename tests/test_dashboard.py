@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+import time
 
 from fastapi.testclient import TestClient
 
@@ -23,7 +25,21 @@ def test_dashboard_upload_traces_pipeline():
         )
 
     assert response.status_code == 200
-    assert "Stage breakdown" in response.text
-    assert "chunking" in response.text
-    assert "cleaning" in response.text
-    assert "vectorization" in response.text
+    match = re.search(r'data-run-id="([^"]+)"', response.text)
+    assert match, "run id not present in response"
+    run_id = match.group(1)
+
+    completed = False
+    for _ in range(10):
+        fragment = client.get(f"/dashboard/runs/{run_id}/fragment")
+        assert fragment.status_code == 200
+        if 'data-run-status="completed"' in fragment.text:
+            assert "Stage breakdown" in fragment.text
+            assert "chunking" in fragment.text
+            assert "cleaning" in fragment.text
+            assert "vectorization" in fragment.text
+            completed = True
+            break
+        time.sleep(0.01)
+
+    assert completed, "pipeline run did not complete in time"
