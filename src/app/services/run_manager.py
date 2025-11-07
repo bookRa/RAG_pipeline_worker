@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import BackgroundTasks
-
 from ..domain.models import Document
 from ..domain.run_models import PipelineResult, PipelineRunRecord, PipelineStage
 from ..persistence.ports import PipelineRunRepository
+from ..application.interfaces import TaskScheduler
 from .pipeline_runner import PipelineRunner
 
 
@@ -43,7 +42,7 @@ class PipelineRunManager:
         self,
         record: PipelineRunRecord,
         document: Document,
-        background_tasks: BackgroundTasks,
+        scheduler: TaskScheduler,
     ) -> None:
         def progress_callback(stage: PipelineStage, updated_document: Document) -> None:
             self.repository.update_stage(record.id, stage, updated_document)
@@ -55,7 +54,7 @@ class PipelineRunManager:
             except Exception as exc:  # pragma: no cover - defensive
                 self.repository.fail_run(record.id, str(exc))
 
-        background_tasks.add_task(task)
+        scheduler.schedule(task)
 
     def run_sync(self, document: Document) -> PipelineResult:
         return self.runner.run(document)

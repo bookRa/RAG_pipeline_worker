@@ -1,41 +1,24 @@
-import os
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
-
+from ..container import get_app_container
 from ..domain.models import Document
-from ..services.chunking_service import ChunkingService
-from ..services.cleaning_service import CleaningService
-from ..services.enrichment_service import EnrichmentService
-from ..services.extraction_service import ExtractionService
-from ..services.ingestion_service import IngestionService
 from ..services.pipeline_runner import PipelineRunner
-from ..services.vector_service import VectorService
 
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "ppt", "pptx"}
 DOCUMENT_STORE: dict[str, Document] = {}
 
-PIPELINE_STAGE_LATENCY = float(os.getenv("PIPELINE_STAGE_LATENCY", "0.05"))
 
-ingestion_service = IngestionService(latency=PIPELINE_STAGE_LATENCY)
-extraction_service = ExtractionService(latency=PIPELINE_STAGE_LATENCY)
-cleaning_service = CleaningService(latency=PIPELINE_STAGE_LATENCY)
-chunking_service = ChunkingService(latency=PIPELINE_STAGE_LATENCY)
-enrichment_service = EnrichmentService(latency=PIPELINE_STAGE_LATENCY)
-vector_service = VectorService(latency=PIPELINE_STAGE_LATENCY)
-pipeline_runner = PipelineRunner(
-    ingestion=ingestion_service,
-    extraction=extraction_service,
-    cleaning=cleaning_service,
-    chunking=chunking_service,
-    enrichment=enrichment_service,
-    vectorization=vector_service,
-)
+def get_pipeline_runner() -> PipelineRunner:
+    return get_app_container().pipeline_runner
 
 
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...)) -> dict:
+async def upload_document(
+    file: UploadFile = File(...),
+    runner: PipelineRunner = Depends(get_pipeline_runner),
+) -> dict:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
@@ -51,7 +34,7 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
         metadata={"content_type": file.content_type},
     )
 
-    result = pipeline_runner.run(document)
+    result = runner.run(document)
     document = result.document
 
     DOCUMENT_STORE[document.id] = document

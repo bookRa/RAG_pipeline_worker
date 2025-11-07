@@ -6,7 +6,7 @@ we will rely on to prove the refactor is complete.
 
 ---
 
-## 1. Introduce a Composition Root & Dependency Injection
+## 1. Introduce a Composition Root & Dependency Injection (Status: Complete)
 - **Problem:** `PipelineRunner`, services, and adapters are instantiated at
   import time inside API modules (`src/app/api/routers.py`,
   `src/app/api/dashboard.py`). `PipelineRunManager` imports

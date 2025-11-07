@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from ..container import get_app_container
 from ..domain.models import Document
 from ..domain.run_models import PipelineRunRecord
-from ..persistence.adapters.filesystem import FileSystemPipelineRunRepository
-from ..services.chunking_service import ChunkingService
-from ..services.cleaning_service import CleaningService
-from ..services.enrichment_service import EnrichmentService
-from ..services.extraction_service import ExtractionService
-from ..services.ingestion_service import IngestionService
 from ..services.pipeline_runner import PipelineRunner
 from ..services.run_manager import PipelineRunManager
-from ..services.vector_service import VectorService
+from .task_scheduler import BackgroundTaskScheduler
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -29,29 +23,6 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
-
-PIPELINE_STAGE_LATENCY = float(os.getenv("PIPELINE_STAGE_LATENCY", "0.05"))
-
-ingestion_service = IngestionService(latency=PIPELINE_STAGE_LATENCY)
-extraction_service = ExtractionService(latency=PIPELINE_STAGE_LATENCY)
-cleaning_service = CleaningService(latency=PIPELINE_STAGE_LATENCY)
-chunking_service = ChunkingService(latency=PIPELINE_STAGE_LATENCY)
-enrichment_service = EnrichmentService(latency=PIPELINE_STAGE_LATENCY)
-vector_service = VectorService(latency=PIPELINE_STAGE_LATENCY)
-pipeline_runner = PipelineRunner(
-    ingestion=ingestion_service,
-    extraction=extraction_service,
-    cleaning=cleaning_service,
-    chunking=chunking_service,
-    enrichment=enrichment_service,
-    vectorization=vector_service,
-)
-
-ARTIFACTS_DIR = Path(
-    os.getenv("RUN_ARTIFACTS_DIR", BASE_DIR / "artifacts" / "runs")
-).resolve()
-run_repository = FileSystemPipelineRunRepository(ARTIFACTS_DIR)
-run_manager = PipelineRunManager(run_repository, pipeline_runner)
 MAX_RUNS_STORED = 10
 
 
@@ -64,8 +35,12 @@ def _save_upload(file: UploadFile, run_id: str) -> str:
     return f"uploads/{safe_name}"
 
 
+def get_run_manager() -> PipelineRunManager:
+    return get_app_container().pipeline_run_manager
+
+
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request) -> HTMLResponse:
+async def dashboard(request: Request, run_manager: PipelineRunManager = Depends(get_run_manager)) -> HTMLResponse:
     runs = run_manager.list_runs(limit=MAX_RUNS_STORED)
     latest_run = runs[0] if runs else None
     return templates.TemplateResponse(
@@ -84,6 +59,7 @@ async def dashboard_upload(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    run_manager: PipelineRunManager = Depends(get_run_manager),
 ) -> HTMLResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
@@ -111,7 +87,8 @@ async def dashboard_upload(
         document=document,
     )
 
-    run_manager.run_async(run_record, document, background_tasks)
+    scheduler = BackgroundTaskScheduler(background_tasks)
+    run_manager.run_async(run_record, document, scheduler)
 
     return templates.TemplateResponse(
         request,
@@ -124,7 +101,11 @@ async def dashboard_upload(
 
 
 @router.get("/runs/{run_id}/fragment", response_class=HTMLResponse)
-async def dashboard_run_fragment(request: Request, run_id: str) -> HTMLResponse:
+async def dashboard_run_fragment(
+    request: Request,
+    run_id: str,
+    run_manager: PipelineRunManager = Depends(get_run_manager),
+) -> HTMLResponse:
     run = run_manager.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
