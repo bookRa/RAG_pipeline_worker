@@ -5,6 +5,10 @@ from functools import lru_cache
 from pathlib import Path
 
 from .config import settings
+from .adapters.docx_parser import DocxParserAdapter
+from .adapters.llm_client import LLMSummaryAdapter
+from .adapters.pdf_parser import PdfParserAdapter
+from .adapters.ppt_parser import PptParserAdapter
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .services.chunking_service import ChunkingService
@@ -28,12 +32,21 @@ class AppContainer:
             os.getenv("INGESTION_STORAGE_DIR", base_dir / "artifacts" / "ingestion")
         ).resolve()
         self.ingestion_repository = FileSystemIngestionRepository(ingestion_storage_dir)
+        self.document_parsers = [
+            PdfParserAdapter(),
+            DocxParserAdapter(),
+            PptParserAdapter(),
+        ]
+        self.summary_generator = LLMSummaryAdapter()
 
         self.ingestion_service = IngestionService(latency=stage_latency, repository=self.ingestion_repository)
-        self.extraction_service = ExtractionService(latency=stage_latency)
+        self.extraction_service = ExtractionService(latency=stage_latency, parsers=self.document_parsers)
         self.cleaning_service = CleaningService(latency=stage_latency)
         self.chunking_service = ChunkingService(latency=stage_latency)
-        self.enrichment_service = EnrichmentService(latency=stage_latency)
+        self.enrichment_service = EnrichmentService(
+            latency=stage_latency,
+            summary_generator=self.summary_generator,
+        )
         self.vector_service = VectorService(latency=stage_latency)
 
         artifacts_dir = Path(

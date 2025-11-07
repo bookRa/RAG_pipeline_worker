@@ -44,6 +44,42 @@ def test_extraction_creates_pages():
     assert document.pages[0].text
 
 
+def test_extraction_uses_parser_with_file_bytes():
+    class StubParser:
+        def supports_type(self, file_type: str) -> bool:
+            return True
+
+        def parse(self, file_bytes: bytes, filename: str) -> list[str]:
+            return ["Page One", "Page Two"]
+
+    ingestion = IngestionService()
+    extraction = ExtractionService(parsers=[StubParser()])
+    document = ingestion.ingest(build_document())
+
+    result = extraction.extract(document, file_bytes=b"payload")
+    assert len(result.pages) == 2
+    assert result.pages[0].text == "Page One"
+
+
+def test_extraction_reads_from_stored_path(tmp_path):
+    class PathParser:
+        def supports_type(self, file_type: str) -> bool:
+            return True
+
+        def parse(self, file_bytes: bytes, filename: str) -> list[str]:
+            return [file_bytes.decode("utf-8")]
+
+    parser = PathParser()
+    extraction = ExtractionService(parsers=[parser])
+    document = build_document()
+    stored = tmp_path / "doc.pdf"
+    stored.write_bytes(b"Stored bytes")
+    document.metadata["raw_file_path"] = str(stored)
+
+    result = extraction.extract(document)
+    assert result.pages[0].text == "Stored bytes"
+
+
 def test_chunking_generates_chunks():
     ingestion = IngestionService()
     extraction = ExtractionService()
@@ -70,6 +106,25 @@ def test_enrichment_adds_summary_and_document_summary():
     assert chunk.metadata is not None
     assert chunk.metadata.summary
     assert document.summary
+
+
+def test_enrichment_uses_summary_generator():
+    class StubSummaryGenerator:
+        def summarize(self, text: str) -> str:
+            return "stub-summary"
+
+    ingestion = IngestionService()
+    extraction = ExtractionService()
+    chunking = ChunkingService()
+    enrichment = EnrichmentService(summary_generator=StubSummaryGenerator())
+
+    document = enrichment.enrich(
+        chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=30, overlap=5)
+    )
+
+    chunk = document.pages[0].chunks[0]
+    assert chunk.metadata is not None
+    assert chunk.metadata.summary == "stub-summary"
 
 
 def test_cleaning_normalizes_text():

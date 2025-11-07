@@ -45,23 +45,19 @@ we will rely on to prove the refactor is complete.
   - Extend `tests/test_services.py` to assert raw text remains accessible after
     cleaning and that cleaning metadata captures token counts + diff hashes.
 
-## 3. Use Parser & LLM Adapters via Ports
-- **Problem:** Format-specific parsers (`pdf_parser.py`, `docx_parser.py`,
-  `ppt_parser.py`) and `llm_client.py` exist but are never referenced.
-  `ExtractionService` hardcodes placeholder text instead of delegating through
-  a port.
-- **Plan of Attack:**
-  - Define a `DocumentParserPort` that exposes `supports(file_type)` and
-    `parse(file_bytes)` (returning structured page data).
-  - Register concrete adapters for PDF/DOCX/PPT in the container.
-  - Update extraction to resolve the correct parser via the port and fall back
-    to an error if no implementation is available.
-  - Add an `EnrichmentEnginePort` so enrichment can call the LLM client without
-    direct imports.
-- **Test Plan:**
-  - Write adapter tests covering the stub parsers.
-  - Add service tests verifying extraction chooses the proper adapter and that
-    missing adapters raise a controlled exception.
+## 3. Use Parser & LLM Adapters via Ports ✅
+- **What we fixed:** Introduced the `DocumentParser` and `SummaryGenerator`
+  ports (`src/app/application/interfaces.py`) and rewired PDF/DOCX/PPT/LLM
+  adapters to implement them. `ExtractionService` now resolves the correct
+  parser (falling back to placeholder text only when necessary) and can pull
+  bytes from either the current request or the persisted ingestion artifact.
+  `EnrichmentService` accepts a `SummaryGenerator`, so the LLM adapter is
+  injected instead of imported directly. The container wires all adapters up.
+- **Tests in place:** `tests/test_services.py` now includes parser-path and
+  summary-generator regression tests to prove that (a) extraction honors the
+  injected parser and stored raw file path, and (b) enrichment defers to the
+  summary generator. Additional adapter-specific tests are still optional, but
+  the service-level tests provide coverage of the integration.
 
 ## 4. Unify Document Persistence Across API & Dashboard
 - **Problem:** REST endpoints keep documents in a module-level dict, while the

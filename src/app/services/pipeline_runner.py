@@ -75,7 +75,7 @@ class PipelineRunner:
         )
 
         stage_start = perf_counter()
-        document = self.extraction.extract(document)
+        document = self.extraction.extract(document, file_bytes=file_bytes)
         register_stage(
             PipelineStage(
                 name="extraction",

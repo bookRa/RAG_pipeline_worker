@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import time
 
+from ..application.interfaces import SummaryGenerator
 from ..domain.models import Document
 from ..observability.logger import log_event
 
@@ -7,8 +10,9 @@ from ..observability.logger import log_event
 class EnrichmentService:
     """Adds lightweight metadata such as titles and summaries to chunks."""
 
-    def __init__(self, latency: float = 0.0) -> None:
+    def __init__(self, latency: float = 0.0, summary_generator: SummaryGenerator | None = None) -> None:
         self.latency = latency
+        self.summary_generator = summary_generator
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -25,7 +29,7 @@ class EnrichmentService:
                 if not chunk.metadata.title:
                     chunk.metadata.title = f"{document.filename}#p{page.page_number}"
                 if not chunk.metadata.summary:
-                    chunk.metadata.summary = chunk.text[:120].strip()
+                    chunk.metadata.summary = self._summarize_chunk(chunk.cleaned_text or chunk.text or "")
                 summaries.append(chunk.metadata.summary)
 
         if summaries and not document.summary:
@@ -40,3 +44,10 @@ class EnrichmentService:
             },
         )
         return document
+
+    def _summarize_chunk(self, text: str) -> str:
+        if not text:
+            return ""
+        if self.summary_generator:
+            return self.summary_generator.summarize(text)
+        return text[:120].strip()
