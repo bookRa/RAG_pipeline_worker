@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}RAG Pipeline Dashboard{% endblock %}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #050918;
+      color: #dbeafe;
+    }
+    a {
+      color: #67e8f9;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    header {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+    }
+    header .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 24px;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.3rem;
+    }
+    header p {
+      margin: 4px 0 0;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+    header nav {
+      display: flex;
+      gap: 18px;
+      font-size: 0.9rem;
+    }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 48px 32px 64px;
+    }
+    footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 18px 32px;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      max-width: 1200px;
+      margin: 0 auto 48px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .layout {
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
+    }
+    .panel {
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 16px;
+      padding: 28px;
+    }
+    .panel h2, .panel h3, .panel h4 {
+      margin-top: 0;
+    }
+    .upload-panel {
+      flex: 1.8;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .history-panel {
+      flex: 1;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.95rem;
+    }
+    input[type="file"] {
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      background: rgba(15, 23, 42, 0.6);
+      color: inherit;
+    }
+    button.primary {
+      width: fit-content;
+      border: none;
+      border-radius: 999px;
+      padding: 12px 20px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      background: linear-gradient(120deg, #34d399, #22d3ee);
+      color: #04101f;
+      cursor: pointer;
+    }
+    button.primary:hover {
+      opacity: 0.9;
+    }
+    button.primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    #upload-indicator {
+      display: none;
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+    .history-list {
+      list-style: none;
+      padding: 0;
+      margin: 20px 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .history-card {
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      background: rgba(15, 23, 42, 0.7);
+    }
+    .history-card:first-child {
+      border-color: rgba(52, 211, 153, 0.5);
+    }
+    .stage-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .stage-card {
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      background: rgba(8, 15, 32, 0.95);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .stage-header {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+    .stage-number {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1px solid rgba(148, 163, 184, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      color: #fb7185;
+      background: rgba(15, 23, 42, 0.6);
+    }
+    pre {
+      background: rgba(15, 23, 42, 0.7);
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+    .chunk-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    .chunk-card {
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 0.9rem;
+      background: rgba(15, 23, 42, 0.8);
+    }
+    iframe.preview {
+      width: 100%;
+      height: 450px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 12px;
+      background: white;
+    }
+    .two-column {
+      display: flex;
+      gap: 20px;
+    }
+    .two-column > article {
+      flex: 1;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <header>
+    <div class="header-content">
+      <div>
+        <h1>RAG Pipeline Developer Dashboard</h1>
+        <p>Manual inspection surface for ingestion → extraction → chunking → enrichment</p>
+      </div>
+      <nav>
+        <a href="/">API Root</a>
+        <a href="/docs">OpenAPI</a>
+        <a href="/dashboard">Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <span>Specification-driven pipeline scaffold</span>
+    <span>FastAPI + Vanilla JS</span>
+  </footer>
+  <script>
+    const DashboardRuns = {
+      watchers: new Map(),
+      start(container) {
+        if (!container) {
+          return;
+        }
+        const target = container.querySelector('[data-run-id]');
+        if (!target) {
+          return;
+        }
+        const runId = target.dataset.runId;
+        const status = target.dataset.runStatus;
+        if (!runId) {
+          return;
+        }
+        if (status === 'completed' || status === 'failed') {
+          this.stop(runId);
+          return;
+        }
+        if (this.watchers.has(runId)) {
+          return;
+        }
+
+        const poll = async () => {
+          try {
+            const response = await fetch(`/dashboard/runs/${runId}/fragment`);
+            if (!response.ok) {
+              throw new Error('Polling failed');
+            }
+            const html = await response.text();
+            container.innerHTML = html;
+            const nextTarget = container.querySelector('[data-run-id]');
+            if (!nextTarget) {
+              this.stop(runId);
+              return;
+            }
+            const nextStatus = nextTarget.dataset.runStatus;
+            if (nextStatus === 'completed' || nextStatus === 'failed') {
+              this.stop(runId);
+            }
+          } catch (error) {
+            console.error(error);
+            this.stop(runId);
+          }
+        };
+
+        const interval = setInterval(poll, 1500);
+        this.watchers.set(runId, interval);
+        poll();
+      },
+      stop(runId) {
+        const interval = this.watchers.get(runId);
+        if (interval) {
+          clearInterval(interval);
+          this.watchers.delete(runId);
+        }
+      },
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('dashboard-upload-form');
+      const output = document.getElementById('run-output');
+      const indicator = document.getElementById('upload-indicator');
+      if (!form || !output) {
+        return;
+      }
+      const submitButton = form.querySelector('button[type="submit"]');
+      const setLoading = (state) => {
+        if (indicator) {
+          indicator.style.display = state ? 'inline-block' : 'none';
+        }
+        if (submitButton) {
+          submitButton.disabled = state;
+        }
+      };
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const action = form.getAttribute('action') || '/dashboard/upload';
+        const formData = new FormData(form);
+        setLoading(true);
+        try {
+          const response = await fetch(action, {
+            method: 'POST',
+            body: formData,
+          });
+          const html = await response.text();
+          if (!response.ok) {
+            throw new Error('Upload failed');
+          }
+          output.innerHTML = html;
+          DashboardRuns.start(output);
+        } catch (error) {
+          console.error(error);
+          alert('Upload failed. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      DashboardRuns.start(output);
+    });
+
+    window.DashboardRuns = DashboardRuns;
+  </script>
+</body>
+
+</html>

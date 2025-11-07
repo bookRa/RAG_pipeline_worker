@@ -1,4 +1,8 @@
 .venv/
 __pycache__/
 .pytest_cache/
+static/uploads/
+!static/uploads/.gitkeep
+artifacts/
+tests/tmp_artifacts/
 .DS_Store

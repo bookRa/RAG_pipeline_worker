@@ -49,8 +49,10 @@ RAG_pipeline_worker/
 │       │   ├── __init__.py
 │       │   ├── ingestion_service.py
 │       │   ├── extraction_service.py
+│       │   ├── cleaning_service.py
 │       │   ├── chunking_service.py
-│       │   └── enrichment_service.py
+│       │   ├── enrichment_service.py
+│       │   └── vector_service.py
 │       ├── adapters/
 │       │   ├── __init__.py
 │       │   ├── pdf_parser.py
@@ -94,6 +96,35 @@ uvicorn src.app.main:app --reload
 ```
 
 Navigate to `http://localhost:8000/docs` for auto-generated API documentation.
+
+### Use the Developer Dashboard
+
+The dashboard at `http://localhost:8000/dashboard` is designed for manual QA:
+
+1. Upload `tests/test_document.pdf` (or any PDF/DOCX/PPT) via the form.
+2. The pipeline runs end-to-end and streams its structured stage payloads into the dashboard.
+3. Inspect the embedded document preview alongside the extraction, chunking, and enrichment cards. Each card shows the JSON output emitted by that service, including page/chunk counts and metadata offsets.
+4. The last 10 runs are kept in memory for comparison. Restarting the server clears the history by design.
+
+Stage cards are rendered vertically with numbered markers so you can follow the exact flow: **(1) ingestion → (2) extraction → (3) cleaning → (4) chunking → (5) enrichment → (6) vectorization**. Each card reflects whatever payload the corresponding service emits, so extending a service automatically enriches the dashboard. The dashboard uses a lightweight vanilla-JS `fetch` shim to update the run details asynchronously—no external libraries are required.
+
+Uploads run asynchronously: the dashboard immediately shows the new run, then refreshes the stage cards every ~1.5s as each stage finishes. Duration metadata (in milliseconds) is captured inside the `PipelineRunner`, so you can see exactly how long each step took once it completes.
+
+#### Persisted run artifacts
+
+All pipeline runs are persisted via a filesystem adapter that writes JSON artifacts to `artifacts/runs/` (configurable via `RUN_ARTIFACTS_DIR`). Each run folder contains the latest document snapshot plus per-stage payloads; swapping to another backend (S3, SQL, etc.) is just a matter of providing a new adapter because the dashboard interacts with the repository port only.
+
+#### Simulated Stage Latency
+
+The FastAPI routes instantiate each service with a configurable delay so that the UI can account for long-running stages. Set `PIPELINE_STAGE_LATENCY` (seconds) before starting `uvicorn` to tune this behavior:
+
+```bash
+PIPELINE_STAGE_LATENCY=0.05 uvicorn src.app.main:app --reload
+```
+
+Use `0` to disable the artificial delay when running benchmarks or production workloads.
+
+See `docs/Dashboard_Requirements.md` for the specification that governs this view and guidance on how future services should publish data to it.
 
 ### Run the Tests
 

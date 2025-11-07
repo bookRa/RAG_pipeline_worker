@@ -1,3 +1,4 @@
+import time
 from uuid import uuid4
 
 from ..domain.models import Chunk, Document, Metadata
@@ -7,7 +8,15 @@ from ..observability.logger import log_event
 class ChunkingService:
     """Splits document pages into smaller, retrievable chunks."""
 
+    def __init__(self, latency: float = 0.0) -> None:
+        self.latency = latency
+
+    def _simulate_latency(self) -> None:
+        if self.latency > 0:
+            time.sleep(self.latency)
+
     def chunk(self, document: Document, size: int = 200, overlap: int = 50) -> Document:
+        self._simulate_latency()
         normalized_overlap = min(overlap, size - 1) if size > 1 else 0
 
         for page in document.pages:
