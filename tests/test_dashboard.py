@@ -1,6 +1,24 @@
+import os
 from pathlib import Path
 import re
+import shutil
 import time
+
+TEST_ARTIFACTS_DIR = Path(__file__).resolve().parent / "tmp_artifacts"
+TEST_ARTIFACTS_DIR.mkdir(exist_ok=True)
+os.environ["RUN_ARTIFACTS_DIR"] = str(TEST_ARTIFACTS_DIR)
+
+
+def _clear_artifacts() -> None:
+    for child in TEST_ARTIFACTS_DIR.glob("*"):
+        if child.is_file():
+            child.unlink()
+        else:
+            shutil.rmtree(child)
+
+
+def setup_function(_: object) -> None:
+    _clear_artifacts()
 
 from fastapi.testclient import TestClient
 

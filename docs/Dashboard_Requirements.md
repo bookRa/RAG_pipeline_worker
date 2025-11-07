@@ -20,7 +20,7 @@ It captures the **manual testing goals**, **scope**, and **acceptance criteria**
 | Upload & execution | Upload PDF, DOCX, PPT/PPTX via `/dashboard`. File runs through the same `PipelineRunner` used by the API. |
 | Stage inspection | Dashboard renders one numbered card per stage (ingestion, extraction, cleaning, chunking, enrichment, vectorization) with the serialized payload (page previews, chunk counts, cleaning stats, vectors) and duration metadata. |
 | Document preview | Uploaded artifact is stored under `static/uploads/` and embedded next to stage data for side-by-side review. |
-| Run history | Maintain at least the last 10 runs in memory so regressions can be compared quickly. |
+| Run history | Maintain at least the last 10 runs via the persistence layer so regressions can be compared quickly even after reloads. |
 | Extensibility | When new stages (cleaning, vectorization, etc.) are added to `PipelineRunner`, they automatically appear in the dashboard with no additional frontend code. |
 
 ---
@@ -43,7 +43,7 @@ It captures the **manual testing goals**, **scope**, and **acceptance criteria**
 3. The dashboard handles unsupported files gracefully (400 error rendered by the client-side fetch helper).
 4. Developers can restart the server and the dashboard still functions (run history resets as designed).
 5. Documentation (README + this file) explains how to operate the dashboard and how future stages should emit data to it.
-6. A configurable `PIPELINE_STAGE_LATENCY` environment variable allows teams to simulate slow stages and validate the dashboard’s loading states, while the UI polls the run endpoint to surface stage completions in near real-time.
+6. A configurable `PIPELINE_STAGE_LATENCY` environment variable allows teams to simulate slow stages and validate the dashboard’s loading states, while the UI polls the run endpoint to surface stage completions in near real-time. `RUN_ARTIFACTS_DIR` controls where JSON artifacts are written locally before swapping in a cloud store.
 
 ---
 

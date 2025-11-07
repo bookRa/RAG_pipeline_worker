@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from time import perf_counter
-from typing import Any, Callable, Iterable
+from typing import Callable, Iterable
 
 from ..domain.models import Document
+from ..domain.run_models import PipelineResult, PipelineStage
 from ..observability.logger import log_event
 from .chunking_service import ChunkingService
 from .cleaning_service import CleaningService
@@ -13,27 +13,6 @@ from .enrichment_service import EnrichmentService
 from .extraction_service import ExtractionService
 from .ingestion_service import IngestionService
 from .vector_service import VectorService
-
-
-@dataclass
-class PipelineStage:
-    name: str
-    title: str
-    details: dict[str, Any] = field(default_factory=dict)
-    duration_ms: float | None = None
-    completed_at: datetime | None = None
-
-
-@dataclass
-class PipelineResult:
-    document: Document
-    stages: list[PipelineStage]
-
-    def stage(self, name: str) -> PipelineStage | None:
-        for stage in self.stages:
-            if stage.name == name:
-                return stage
-        return None
 
 
 class PipelineRunner:
