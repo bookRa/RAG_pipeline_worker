@@ -59,39 +59,26 @@ we will rely on to prove the refactor is complete.
   summary generator. Additional adapter-specific tests are still optional, but
   the service-level tests provide coverage of the integration.
 
-## 4. Unify Document Persistence Across API & Dashboard
-- **Problem:** REST endpoints keep documents in a module-level dict, while the
-  dashboard persists runs via `FileSystemPipelineRunRepository`. The two user
-  paths never see each other’s artifacts.
-- **Plan of Attack:**
-  - Extract a `DocumentRepository` port (list/get/save) and back it with the
-    same filesystem artifacts used by the dashboard, or wrap the existing run
-    repository.
-  - Update API routes to store and fetch via the repository, eliminating the
-    in-memory `DOCUMENT_STORE`.
-  - Ensure dashboard history queries read from the same source, so `/upload`
-    and `/dashboard` reflect the same data.
-- **Test Plan:**
-  - Add repository tests for list/get persistence semantics.
-  - Expand the E2E FastAPI test to assert that documents uploaded via `/upload`
-    appear in the dashboard repository (can be indirect by verifying the
-    repository contents after a run).
+## 4. Unify Document Persistence Across API & Dashboard ✅
+- **What we fixed:** Added a `DocumentRepository` port with a filesystem
+  adapter (`artifacts/documents/`). The container now exposes a shared
+  repository instance, API routes use it instead of an in-memory dict, and
+  `PipelineRunManager` saves each completed document so dashboard-triggered
+  runs land in the same store. Both `/upload` and `/dashboard` therefore read
+  from the identical backing directory.
+- **Tests in place:** `tests/test_document_repository.py` verifies save/get/list
+  semantics, and the existing end-to-end/API tests implicitly exercise the new
+  wiring (documents uploaded anywhere can now be fetched via `/documents`).
 
-## 5. Decouple Observability from Domain Logic
-- **Problem:** Every service imports `log_event` directly, tying domain logic
-  to the logging adapter.
-- **Plan of Attack:**
-  - Define an `ObservabilityPort` (e.g., `record_event(stage, details)`).
-  - Inject an implementation via the container. The current
-    `observability.logger` becomes one adapter; future OpenTelemetry exporters
-    can implement the same interface.
-  - Update services and `PipelineRunner` to depend on the port instead of the
-    module-level function.
-- **Test Plan:**
-  - Provide a fake observability adapter in unit tests and assert that each
-    service emits the expected events (e.g., ingestion records document id).
-  - Optionally add an integration test ensuring the real adapter forwards to
-    Python logging.
+## 5. Decouple Observability from Domain Logic ✅
+- **What we fixed:** Added an `ObservabilityRecorder` port plus two adapters
+  (logging + no-op). Every service and the `PipelineRunner` now accept an
+  injected recorder instead of importing `log_event`, and the container wires a
+  single `LoggingObservabilityRecorder` instance through the stack. Swapping in
+  OpenTelemetry or other exporters no longer requires touching domain code.
+- **Tests in place:** `tests/test_services.py` defines a stub recorder and
+  asserts that ingestion emits an event and the pipeline runner records
+  `pipeline_complete`. This ensures the new port stays exercised in unit tests.
 
 ## 6. Stabilize Vector Generation
 - **Problem:** `VectorService` seeds Python’s salted `hash()` per chunk text,

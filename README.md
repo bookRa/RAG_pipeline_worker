@@ -118,6 +118,14 @@ All pipeline runs are persisted via a filesystem adapter that writes JSON artifa
 
 During ingestion the raw file bytes are copied into `artifacts/ingestion/<document_id>/` (configurable via `INGESTION_STORAGE_DIR`). The document metadata keeps a pointer and checksum so downstream stages can always retrieve the immutable source payload.
 
+#### Processed document storage
+
+After each pipeline run completes, the resulting `Document` model is stored under `artifacts/documents/` (configurable via `DOCUMENT_STORAGE_DIR`). Both the REST API and the dashboard read from this repository, so documents uploaded through `/upload` or `/dashboard` appear in the same list and can be fetched by ID.
+
+#### Observability hooks
+
+Each service now emits structured events through an `ObservabilityRecorder` port. The default adapter logs JSON payloads (stage name + metadata) via Python’s logging so CLI users and dashboard engineers share the same trace. Swap in an alternative recorder (e.g., OpenTelemetry) without touching the domain layer.
+
 #### Simulated Stage Latency
 
 The FastAPI routes instantiate each service with a configurable delay so that the UI can account for long-running stages. Set `PIPELINE_STAGE_LATENCY` (seconds) before starting `uvicorn` to tune this behavior:

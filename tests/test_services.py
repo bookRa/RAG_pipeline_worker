@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 from src.app.domain.models import Document
@@ -7,6 +9,7 @@ from src.app.services.cleaning_service import CleaningService
 from src.app.services.enrichment_service import EnrichmentService
 from src.app.services.extraction_service import ExtractionService
 from src.app.services.ingestion_service import IngestionService
+from src.app.services.pipeline_runner import PipelineRunner
 from src.app.services.vector_service import VectorService
 
 
@@ -158,3 +161,40 @@ def test_vectorization_attaches_vectors():
     assert chunk.metadata is not None
     assert "vector" in chunk.metadata.extra
     assert len(chunk.metadata.extra["vector"]) == 4
+
+
+class StubObservabilityRecorder:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def record_event(self, stage: str, details: dict | None = None) -> None:
+        self.events.append((stage, details or {}))
+
+
+def test_ingestion_emits_observability_event():
+    recorder = StubObservabilityRecorder()
+    service = IngestionService(observability=recorder)
+    document = build_document()
+    service.ingest(document)
+    assert any(stage == "ingestion" for stage, _ in recorder.events)
+
+
+def test_pipeline_runner_emits_completion_event():
+    recorder = StubObservabilityRecorder()
+    ingestion = IngestionService(observability=recorder)
+    extraction = ExtractionService(observability=recorder)
+    cleaning = CleaningService(observability=recorder)
+    chunking = ChunkingService(observability=recorder)
+    enrichment = EnrichmentService(observability=recorder)
+    vectorization = VectorService(observability=recorder)
+    runner = PipelineRunner(
+        ingestion=ingestion,
+        extraction=extraction,
+        cleaning=cleaning,
+        chunking=chunking,
+        enrichment=enrichment,
+        vectorization=vectorization,
+        observability=recorder,
+    )
+    runner.run(build_document())
+    assert any(stage == "pipeline_complete" for stage, _ in recorder.events)

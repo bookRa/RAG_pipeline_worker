@@ -4,9 +4,10 @@ from datetime import datetime
 from time import perf_counter
 from typing import Callable, Iterable
 
+from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
 from ..domain.run_models import PipelineResult, PipelineStage
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 from .chunking_service import ChunkingService
 from .cleaning_service import CleaningService
 from .enrichment_service import EnrichmentService
@@ -26,6 +27,7 @@ class PipelineRunner:
         chunking: ChunkingService,
         enrichment: EnrichmentService,
         vectorization: VectorService,
+        observability: ObservabilityRecorder | None = None,
     ) -> None:
         self.ingestion = ingestion
         self.extraction = extraction
@@ -33,6 +35,7 @@ class PipelineRunner:
         self.chunking = chunking
         self.enrichment = enrichment
         self.vectorization = vectorization
+        self.observability = observability or NullObservabilityRecorder()
 
     STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
         ("ingestion", "Ingestion"),
@@ -177,7 +180,7 @@ class PipelineRunner:
             )
         )
 
-        log_event(
+        self.observability.record_event(
             stage="pipeline_complete",
             details={"document_id": document.id, "stages": [stage.name for stage in stages]},
         )

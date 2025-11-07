@@ -4,17 +4,25 @@ import hashlib
 import time
 from typing import Callable
 
+from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 
 
 class CleaningService:
     """Normalizes text and records cleaning metadata."""
 
-    def __init__(self, profile: str = "default", normalizer: Callable[[str], str] | None = None, latency: float = 0.0) -> None:
+    def __init__(
+        self,
+        profile: str = "default",
+        normalizer: Callable[[str], str] | None = None,
+        latency: float = 0.0,
+        observability: ObservabilityRecorder | None = None,
+    ) -> None:
         self.profile = profile
         self.normalizer = normalizer or self._default_normalizer
         self.latency = latency
+        self.observability = observability or NullObservabilityRecorder()
 
     @staticmethod
     def _default_normalizer(text: str) -> str:
@@ -41,7 +49,7 @@ class CleaningService:
 
         document.metadata["cleaning_profile"] = self.profile
         document.status = "cleaned"
-        log_event(
+        self.observability.record_event(
             stage="cleaning",
             details={
                 "document_id": document.id,

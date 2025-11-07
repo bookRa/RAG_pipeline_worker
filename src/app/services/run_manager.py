@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from ..domain.models import Document
 from ..domain.run_models import PipelineResult, PipelineRunRecord, PipelineStage
-from ..persistence.ports import PipelineRunRepository
+from ..persistence.ports import DocumentRepository, PipelineRunRepository
 from ..application.interfaces import TaskScheduler
 from .pipeline_runner import PipelineRunner
 
@@ -13,9 +13,15 @@ from .pipeline_runner import PipelineRunner
 class PipelineRunManager:
     """Coordinates pipeline execution with persistence."""
 
-    def __init__(self, repository: PipelineRunRepository, runner: PipelineRunner) -> None:
+    def __init__(
+        self,
+        repository: PipelineRunRepository,
+        runner: PipelineRunner,
+        document_repository: DocumentRepository | None = None,
+    ) -> None:
         self.repository = repository
         self.runner = runner
+        self.document_repository = document_repository
 
     def create_run(
         self,
@@ -52,13 +58,18 @@ class PipelineRunManager:
             try:
                 result = self.runner.run(document, file_bytes=file_bytes, progress_callback=progress_callback)
                 self.repository.complete_run(record.id, result)
+                if self.document_repository:
+                    self.document_repository.save(result.document)
             except Exception as exc:  # pragma: no cover - defensive
                 self.repository.fail_run(record.id, str(exc))
 
         scheduler.schedule(task)
 
     def run_sync(self, document: Document, file_bytes: bytes | None = None) -> PipelineResult:
-        return self.runner.run(document, file_bytes=file_bytes)
+        result = self.runner.run(document, file_bytes=file_bytes)
+        if self.document_repository:
+            self.document_repository.save(result.document)
+        return result
 
     def get_run(self, run_id: str) -> PipelineRunRecord | None:
         return self.repository.get_run(run_id)

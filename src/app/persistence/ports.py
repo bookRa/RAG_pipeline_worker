@@ -33,3 +33,16 @@ class IngestionRepository(Protocol):
 
     def store(self, *, document_id: str, filename: str, data: bytes) -> str:
         """Persist the upload and return a stable path/identifier."""
+
+
+class DocumentRepository(Protocol):
+    """Port defining CRUD for processed documents."""
+
+    def save(self, document: Document) -> None:
+        """Persist the given document snapshot."""
+
+    def get(self, document_id: str) -> Document | None:
+        """Fetch a single document by id."""
+
+    def list(self) -> list[Document]:
+        """Return all documents known to the repository."""

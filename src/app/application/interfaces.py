@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Protocol, Sequence
+from typing import Callable, Protocol, Sequence, Mapping, Any
 
 
 class TaskScheduler(Protocol):
@@ -27,3 +27,10 @@ class SummaryGenerator(Protocol):
 
     def summarize(self, text: str) -> str:
         """Return a short summary of the provided text."""
+
+
+class ObservabilityRecorder(Protocol):
+    """Port describing how domain events are emitted."""
+
+    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
+        """Emit a structured event for the given stage."""

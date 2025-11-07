@@ -3,17 +3,25 @@ from __future__ import annotations
 import time
 from random import Random
 
+from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 
 
 class VectorService:
     """Creates deterministic placeholder vectors for chunks."""
 
-    def __init__(self, dimension: int = 8, seed: int = 42, latency: float = 0.0) -> None:
+    def __init__(
+        self,
+        dimension: int = 8,
+        seed: int = 42,
+        latency: float = 0.0,
+        observability: ObservabilityRecorder | None = None,
+    ) -> None:
         self.dimension = dimension
         self.random = Random(seed)
         self.latency = latency
+        self.observability = observability or NullObservabilityRecorder()
 
     def _vector_for_text(self, text: str) -> list[float]:
         self.random.seed(hash(text) & 0xFFFFFFFF)
@@ -36,7 +44,7 @@ class VectorService:
 
         document.metadata["vector_dimension"] = self.dimension
         document.status = "vectorized"
-        log_event(
+        self.observability.record_event(
             stage="vectorization",
             details={
                 "document_id": document.id,

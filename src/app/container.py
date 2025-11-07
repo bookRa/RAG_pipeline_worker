@@ -9,8 +9,10 @@ from .adapters.docx_parser import DocxParserAdapter
 from .adapters.llm_client import LLMSummaryAdapter
 from .adapters.pdf_parser import PdfParserAdapter
 from .adapters.ppt_parser import PptParserAdapter
+from .persistence.adapters.document_filesystem import FileSystemDocumentRepository
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
+from .observability.logger import LoggingObservabilityRecorder
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
@@ -32,6 +34,8 @@ class AppContainer:
             os.getenv("INGESTION_STORAGE_DIR", base_dir / "artifacts" / "ingestion")
         ).resolve()
         self.ingestion_repository = FileSystemIngestionRepository(ingestion_storage_dir)
+        documents_dir = Path(os.getenv("DOCUMENT_STORAGE_DIR", base_dir / "artifacts" / "documents")).resolve()
+        self.document_repository = FileSystemDocumentRepository(documents_dir)
         self.document_parsers = [
             PdfParserAdapter(),
             DocxParserAdapter(),
@@ -39,15 +43,26 @@ class AppContainer:
         ]
         self.summary_generator = LLMSummaryAdapter()
 
-        self.ingestion_service = IngestionService(latency=stage_latency, repository=self.ingestion_repository)
-        self.extraction_service = ExtractionService(latency=stage_latency, parsers=self.document_parsers)
-        self.cleaning_service = CleaningService(latency=stage_latency)
-        self.chunking_service = ChunkingService(latency=stage_latency)
+        self.observability = LoggingObservabilityRecorder()
+
+        self.ingestion_service = IngestionService(
+            latency=stage_latency,
+            repository=self.ingestion_repository,
+            observability=self.observability,
+        )
+        self.extraction_service = ExtractionService(
+            latency=stage_latency,
+            parsers=self.document_parsers,
+            observability=self.observability,
+        )
+        self.cleaning_service = CleaningService(latency=stage_latency, observability=self.observability)
+        self.chunking_service = ChunkingService(latency=stage_latency, observability=self.observability)
         self.enrichment_service = EnrichmentService(
             latency=stage_latency,
             summary_generator=self.summary_generator,
+            observability=self.observability,
         )
-        self.vector_service = VectorService(latency=stage_latency)
+        self.vector_service = VectorService(latency=stage_latency, observability=self.observability)
 
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")
@@ -61,9 +76,12 @@ class AppContainer:
             chunking=self.chunking_service,
             enrichment=self.enrichment_service,
             vectorization=self.vector_service,
+            observability=self.observability,
         )
         self.pipeline_run_manager = PipelineRunManager(
-            self.run_repository, self.pipeline_runner
+            self.run_repository,
+            self.pipeline_runner,
+            document_repository=self.document_repository,
         )
 
 

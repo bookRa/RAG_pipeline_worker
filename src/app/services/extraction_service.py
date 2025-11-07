@@ -4,17 +4,23 @@ from pathlib import Path
 import time
 from typing import Sequence
 
-from ..application.interfaces import DocumentParser
+from ..application.interfaces import DocumentParser, ObservabilityRecorder
 from ..domain.models import Document, Page
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 
 
 class ExtractionService:
     """Converts an ingested document into a structured set of pages."""
 
-    def __init__(self, latency: float = 0.0, parsers: Sequence[DocumentParser] | None = None) -> None:
+    def __init__(
+        self,
+        latency: float = 0.0,
+        parsers: Sequence[DocumentParser] | None = None,
+        observability: ObservabilityRecorder | None = None,
+    ) -> None:
         self.latency = latency
         self.parsers = list(parsers or [])
+        self.observability = observability or NullObservabilityRecorder()
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -44,7 +50,7 @@ class ExtractionService:
 
         document.status = "extracted"
 
-        log_event(
+        self.observability.record_event(
             stage="extraction",
             details={
                 "document_id": document.id,

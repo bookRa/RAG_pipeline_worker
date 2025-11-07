@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import time
 
-from ..application.interfaces import SummaryGenerator
+from ..application.interfaces import SummaryGenerator, ObservabilityRecorder
 from ..domain.models import Document
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 
 
 class EnrichmentService:
     """Adds lightweight metadata such as titles and summaries to chunks."""
 
-    def __init__(self, latency: float = 0.0, summary_generator: SummaryGenerator | None = None) -> None:
+    def __init__(
+        self,
+        latency: float = 0.0,
+        summary_generator: SummaryGenerator | None = None,
+        observability: ObservabilityRecorder | None = None,
+    ) -> None:
         self.latency = latency
         self.summary_generator = summary_generator
+        self.observability = observability or NullObservabilityRecorder()
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -36,7 +42,7 @@ class EnrichmentService:
             document.summary = " ".join(summaries)[:280]
 
         document.status = "enriched"
-        log_event(
+        self.observability.record_event(
             stage="enrichment",
             details={
                 "document_id": document.id,

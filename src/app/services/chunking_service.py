@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import time
 from uuid import uuid4
 
+from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Chunk, Document, Metadata
-from ..observability.logger import log_event
+from ..observability.logger import NullObservabilityRecorder
 
 
 class ChunkingService:
     """Splits document pages into smaller, retrievable chunks."""
 
-    def __init__(self, latency: float = 0.0) -> None:
+    def __init__(self, latency: float = 0.0, observability: ObservabilityRecorder | None = None) -> None:
         self.latency = latency
+        self.observability = observability or NullObservabilityRecorder()
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -60,7 +64,7 @@ class ChunkingService:
                 chunk_index += 1
 
         document.status = "chunked"
-        log_event(
+        self.observability.record_event(
             stage="chunking",
             details={
                 "document_id": document.id,
