@@ -26,3 +26,10 @@ class PipelineRunRepository(Protocol):
 
     def list_runs(self, limit: int = 10) -> list[PipelineRunRecord]:
         """Return the most recent runs for dashboard display."""
+
+
+class IngestionRepository(Protocol):
+    """Port describing how raw uploads are stored."""
+
+    def store(self, *, document_id: str, filename: str, data: bytes) -> str:
+        """Persist the upload and return a stable path/identifier."""

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import settings
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
+from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
@@ -20,16 +21,21 @@ class AppContainer:
     """Application composition root wiring services, repositories, and adapters."""
 
     def __init__(self) -> None:
-        stage_latency = float(os.getenv("PIPELINE_STAGE_LATENCY", "2.05"))
+        stage_latency = float(os.getenv("PIPELINE_STAGE_LATENCY", "0.05"))
         self.settings = settings
-        self.ingestion_service = IngestionService(latency=stage_latency)
+        base_dir = Path(__file__).resolve().parents[2]
+        ingestion_storage_dir = Path(
+            os.getenv("INGESTION_STORAGE_DIR", base_dir / "artifacts" / "ingestion")
+        ).resolve()
+        self.ingestion_repository = FileSystemIngestionRepository(ingestion_storage_dir)
+
+        self.ingestion_service = IngestionService(latency=stage_latency, repository=self.ingestion_repository)
         self.extraction_service = ExtractionService(latency=stage_latency)
         self.cleaning_service = CleaningService(latency=stage_latency)
         self.chunking_service = ChunkingService(latency=stage_latency)
         self.enrichment_service = EnrichmentService(latency=stage_latency)
         self.vector_service = VectorService(latency=stage_latency)
 
-        base_dir = Path(__file__).resolve().parents[2]
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")
         ).resolve()

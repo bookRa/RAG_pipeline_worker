@@ -43,21 +43,22 @@ class PipelineRunManager:
         record: PipelineRunRecord,
         document: Document,
         scheduler: TaskScheduler,
+        file_bytes: bytes | None = None,
     ) -> None:
         def progress_callback(stage: PipelineStage, updated_document: Document) -> None:
             self.repository.update_stage(record.id, stage, updated_document)
 
         def task() -> None:
             try:
-                result = self.runner.run(document, progress_callback=progress_callback)
+                result = self.runner.run(document, file_bytes=file_bytes, progress_callback=progress_callback)
                 self.repository.complete_run(record.id, result)
             except Exception as exc:  # pragma: no cover - defensive
                 self.repository.fail_run(record.id, str(exc))
 
         scheduler.schedule(task)
 
-    def run_sync(self, document: Document) -> PipelineResult:
-        return self.runner.run(document)
+    def run_sync(self, document: Document, file_bytes: bytes | None = None) -> PipelineResult:
+        return self.runner.run(document, file_bytes=file_bytes)
 
     def get_run(self, run_id: str) -> PipelineRunRecord | None:
         return self.repository.get_run(run_id)

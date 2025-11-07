@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Callable
 
@@ -25,23 +26,18 @@ class CleaningService:
         page_summaries: list[dict[str, int]] = []
         for page in document.pages:
             cleaned_page_text = self.normalizer(page.text or "")
-            page.text = cleaned_page_text
+            page.cleaned_text = cleaned_page_text
             token_count = len(cleaned_page_text.split())
+            diff_hash_input = f"{page.text or ''}::{cleaned_page_text}"
+            diff_hash = hashlib.sha256(diff_hash_input.encode("utf-8")).hexdigest()
             page_summaries.append(
                 {
                     "page_number": page.page_number,
                     "cleaned_tokens": token_count,
                     "characters": len(cleaned_page_text),
+                    "diff_hash": diff_hash,
                 }
             )
-
-            for chunk in page.chunks:
-                cleaned_chunk_text = self.normalizer(chunk.text)
-                if chunk.metadata:
-                    chunk.metadata.extra["cleaned_text"] = cleaned_chunk_text
-                    chunk.metadata.extra["cleaned_tokens"] = len(cleaned_chunk_text.split())
-                    chunk.metadata.extra["cleaning_profile"] = self.profile
-                chunk.text = cleaned_chunk_text
 
         document.metadata["cleaning_profile"] = self.profile
         document.status = "cleaned"

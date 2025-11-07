@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from src.app.domain.models import Document
+from src.app.persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from src.app.services.chunking_service import ChunkingService
 from src.app.services.cleaning_service import CleaningService
 from src.app.services.enrichment_service import EnrichmentService
@@ -17,6 +20,20 @@ def test_ingestion_updates_status():
     updated = service.ingest(document)
     assert updated.status == "ingested"
     assert "ingested_at" in updated.metadata
+
+
+def test_ingestion_persists_raw_file(tmp_path):
+    repository = FileSystemIngestionRepository(tmp_path)
+    service = IngestionService(repository=repository)
+    document = build_document()
+    raw_payload = b"Example PDF bytes"
+
+    updated = service.ingest(document, file_bytes=raw_payload)
+
+    stored_path = Path(updated.metadata["raw_file_path"])
+    assert stored_path.exists()
+    assert stored_path.read_bytes() == raw_payload
+    assert updated.metadata["raw_file_checksum"]
 
 
 def test_extraction_creates_pages():
@@ -60,9 +77,14 @@ def test_cleaning_normalizes_text():
     extraction = ExtractionService()
     cleaning = CleaningService()
 
-    document = cleaning.clean(extraction.extract(ingestion.ingest(build_document())))
+    document = extraction.extract(ingestion.ingest(build_document()))
+    document.pages[0].text = "Hello   world"
+    document = cleaning.clean(document)
+    page = document.pages[0]
     assert document.status == "cleaned"
-    assert all("  " not in page.text for page in document.pages)
+    assert page.text == "Hello   world"
+    assert page.cleaned_text == "Hello world"
+    assert all("  " not in (p.cleaned_text or "") for p in document.pages)
     assert "cleaning_report" in document.metadata
 
 

@@ -114,6 +114,10 @@ Uploads run asynchronously: the dashboard immediately shows the new run, then re
 
 All pipeline runs are persisted via a filesystem adapter that writes JSON artifacts to `artifacts/runs/` (configurable via `RUN_ARTIFACTS_DIR`). Each run folder contains the latest document snapshot plus per-stage payloads; swapping to another backend (S3, SQL, etc.) is just a matter of providing a new adapter because the dashboard interacts with the repository port only.
 
+#### Raw upload storage
+
+During ingestion the raw file bytes are copied into `artifacts/ingestion/<document_id>/` (configurable via `INGESTION_STORAGE_DIR`). The document metadata keeps a pointer and checksum so downstream stages can always retrieve the immutable source payload.
+
 #### Simulated Stage Latency
 
 The FastAPI routes instantiate each service with a configurable delay so that the UI can account for long-running stages. Set `PIPELINE_STAGE_LATENCY` (seconds) before starting `uvicorn` to tune this behavior:

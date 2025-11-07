@@ -46,6 +46,8 @@ class PipelineRunner:
     def run(
         self,
         document: Document,
+        *,
+        file_bytes: bytes | None = None,
         progress_callback: Callable[[PipelineStage, Document], None] | None = None,
     ) -> PipelineResult:
         stages: list[PipelineStage] = []
@@ -57,7 +59,7 @@ class PipelineRunner:
                 progress_callback(stage, document)
 
         stage_start = perf_counter()
-        document = self.ingestion.ingest(document)
+        document = self.ingestion.ingest(document, file_bytes=file_bytes)
         register_stage(
             PipelineStage(
                 name="ingestion",

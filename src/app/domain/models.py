@@ -31,6 +31,7 @@ class Chunk(BaseModel):
     text: str
     start_offset: int
     end_offset: int
+    cleaned_text: Optional[str] = None
     metadata: Optional[Metadata] = None
 
 
@@ -41,6 +42,7 @@ class Page(BaseModel):
     document_id: str
     page_number: int
     text: str
+    cleaned_text: Optional[str] = None
     chunks: list[Chunk] = Field(default_factory=list)
 
 

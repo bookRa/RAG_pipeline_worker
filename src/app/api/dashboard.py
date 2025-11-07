@@ -49,6 +49,7 @@ async def dashboard(request: Request, run_manager: PipelineRunManager = Depends(
         {
             "runs": runs,
             "latest_run": latest_run,
+            "run": latest_run,
             "stage_sequence": list(PipelineRunner.STAGE_SEQUENCE),
         },
     )
@@ -88,7 +89,7 @@ async def dashboard_upload(
     )
 
     scheduler = BackgroundTaskScheduler(background_tasks)
-    run_manager.run_async(run_record, document, scheduler)
+    run_manager.run_async(run_record, document, scheduler, file_bytes=file_bytes)
 
     return templates.TemplateResponse(
         request,

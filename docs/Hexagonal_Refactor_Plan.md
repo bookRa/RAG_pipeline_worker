@@ -27,7 +27,7 @@ we will rely on to prove the refactor is complete.
   - Update API route tests to verify dependency overrides work and that uploads
     still complete end-to-end (`tests/test_end_to_end.py`).
 
-## 2. Preserve Raw Ingestion Artifacts & Cleaning Contracts
+## 2. Preserve Raw Ingestion Artifacts & Cleaning Contracts (Status: Complete)
 - **Problem:** `IngestionService` annotates metadata but never persists the
   raw file. `CleaningService` overwrites `page.text` and `chunk.text` in place,
   violating the requirement to keep immutable raw extraction output.

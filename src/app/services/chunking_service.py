@@ -23,7 +23,7 @@ class ChunkingService:
             if page.chunks:
                 continue
 
-            text = page.text or ""
+            text = page.cleaned_text or page.text or ""
             if not text:
                 continue
 
@@ -46,6 +46,7 @@ class ChunkingService:
                     document_id=document.id,
                     page_number=page.page_number,
                     text=chunk_text,
+                    cleaned_text=chunk_text,
                     start_offset=start,
                     end_offset=end,
                     metadata=metadata,

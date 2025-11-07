@@ -34,7 +34,7 @@ async def upload_document(
         metadata={"content_type": file.content_type},
     )
 
-    result = runner.run(document)
+    result = runner.run(document, file_bytes=file_bytes)
     document = result.document
 
     DOCUMENT_STORE[document.id] = document
