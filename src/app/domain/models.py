@@ -8,7 +8,35 @@ from pydantic import BaseModel, Field
 
 
 class Metadata(BaseModel):
-    """Metadata describing additional context for a chunk."""
+    """
+    Metadata describing additional context for a chunk.
+    
+    This model captures enrichment data that helps with retrieval, filtering, and
+    understanding the chunk's content. The `extra` field provides extensibility
+    for service-specific metadata (e.g., cleaning operations, vector embeddings).
+    
+    Attributes:
+        id: Unique identifier for this metadata record
+        document_id: Reference to the parent document
+        page_number: Page number where the chunk originates (may be extended for multi-page chunks)
+        chunk_id: Reference to the chunk this metadata describes
+        start_offset: Character offset in the raw page text where chunk starts
+        end_offset: Character offset in the raw page text where chunk ends
+        title: Optional human-readable title for the chunk
+        summary: Optional summary or abstract of the chunk content
+        keywords: List of keywords extracted from the chunk
+        extra: Dictionary for extensible metadata (e.g., cleaning info, vector data)
+    
+    Cleaning Metadata Structure (stored in extra["cleaning"]):
+        {
+            "segment_id": chunk.id,  # Links metadata to chunk
+            "cleaned_tokens_count": int,  # Token count after cleaning
+            "diff_hash": str,  # Hash of "raw::cleaned" for change tracking
+            "cleaning_ops": list[str],  # Operations applied (e.g., ["whitespace", "case_norm"])
+            "needs_review": bool,  # Flag indicating manual review may be needed
+            "profile": str  # Cleaning profile used (e.g., "default", "aggressive")
+        }
+    """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     document_id: str
@@ -23,7 +51,42 @@ class Metadata(BaseModel):
 
 
 class Chunk(BaseModel):
-    """Represents a chunk of text derived from a document page."""
+    """
+    Represents a chunk of text derived from a document page.
+    
+    A chunk is a contiguous segment of text extracted from a document for processing,
+    retrieval, and indexing. This model preserves both raw and cleaned versions of
+    the text to support different use cases (e.g., exact source navigation vs. normalized search).
+    
+    Raw vs Cleaned Text:
+        - `text`: Always contains the raw, immutable text slice from the source document.
+                 This is the original extraction output, preserved exactly as extracted.
+                 Offsets (start_offset, end_offset) reference positions in this raw text.
+                 This enables precise document navigation and source citation.
+        
+        - `cleaned_text`: Optional normalized version of the text after cleaning operations
+                          (whitespace normalization, case handling, etc.). This is a parallel
+                          slice that corresponds to the same logical segment as `text`, but
+                          may differ in length or content due to normalization.
+                          Used for improved search, vectorization, and semantic operations.
+    
+    Future Extensibility for Semantic Chunking:
+        Currently, chunks are assumed to come from a single page (page_number is a single int).
+        Future semantic chunking may span multiple pages. When that is implemented, consider:
+        - Adding `page_ranges: list[tuple[int, int, int]]` where each tuple is (page_num, start, end)
+        - Or extending `page_number` to support page ranges
+        - Ensuring offsets remain consistent with raw text positions for navigation
+    
+    Attributes:
+        id: Unique identifier for this chunk
+        document_id: Reference to the parent document
+        page_number: Page number where chunk originates (single page for now, extensible for multi-page)
+        text: Raw text slice from source document (immutable, preserves exact extraction)
+        start_offset: Character offset in raw page text where chunk starts (for navigation)
+        end_offset: Character offset in raw page text where chunk ends (for navigation)
+        cleaned_text: Optional cleaned/normalized version of the text (parallel to raw text)
+        metadata: Optional enrichment metadata (keywords, summary, cleaning info, etc.)
+    """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     document_id: str
@@ -36,7 +99,28 @@ class Chunk(BaseModel):
 
 
 class Page(BaseModel):
-    """A single page from a document, containing zero or more chunks."""
+    """
+    A single page from a document, containing zero or more chunks.
+    
+    A page represents one logical page of extracted content. It preserves both
+    raw and cleaned versions of the page text, which are then sliced into chunks
+    during the chunking stage.
+    
+    Raw vs Cleaned Text:
+        - `text`: Raw, immutable text extracted from the document (preserves exact extraction output)
+        - `cleaned_text`: Optional normalized version after cleaning operations (whitespace, case, etc.)
+    
+    The cleaning service populates `cleaned_text` if cleaning has run. The chunking service
+    then creates chunks by slicing from `text` (for raw chunks) and `cleaned_text` (for cleaned chunks).
+    
+    Attributes:
+        id: Unique identifier for this page
+        document_id: Reference to the parent document
+        page_number: Sequential page number (1-indexed)
+        text: Raw extracted text from this page (immutable source)
+        cleaned_text: Optional cleaned/normalized version of the page text
+        chunks: List of chunks derived from this page
+    """
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     document_id: str

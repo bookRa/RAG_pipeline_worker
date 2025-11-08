@@ -1,5 +1,11 @@
 # LLM Integration Implementation Guide
 
+> **⚠️ Future Implementation Guide**  
+> This guide describes a **planned future feature** that is not currently implemented in the codebase.  
+> The code examples, protocols, and adapters referenced in this guide (e.g., `LLMClient`, `OpenAIImageClient`, `PDFImageConverter`, `LLMImageParserAdapter`) do not exist in the current codebase.  
+> This document serves as an architectural blueprint for future LLM integration work.  
+> For current implementation details, see the existing adapters in `src/app/adapters/` and interfaces in `src/app/application/interfaces.py`.
+
 ## Introduction
 
 This guide demonstrates how to integrate Large Language Model (LLM) calls into the document extraction pipeline while maintaining strict adherence to hexagonal architecture principles. Specifically, we'll implement an LLM-based PDF parser that processes page screenshots instead of extracting text directly.

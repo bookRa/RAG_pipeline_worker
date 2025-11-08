@@ -226,6 +226,118 @@ def test_cleaning_normalizes_text():
     assert "cleaning_report" in document.metadata
 
 
+def test_cleaning_generates_segment_metadata():
+    """Test that cleaning service generates segment-level metadata."""
+    observability = build_null_observability()
+    ingestion = IngestionService(observability=observability)
+    extraction = ExtractionService(observability=observability)
+    cleaning = CleaningService(observability=observability, profile="test_profile")
+
+    document = extraction.extract(ingestion.ingest(build_document()))
+    updated_page = document.pages[0].model_copy(update={"text": "Hello   world"})
+    document = document.model_copy(update={"pages": [updated_page]})
+    document = cleaning.clean(document)
+    
+    # Verify cleaning metadata is stored by page number
+    assert "cleaning_metadata_by_page" in document.metadata
+    assert 1 in document.metadata["cleaning_metadata_by_page"]
+    
+    page_meta = document.metadata["cleaning_metadata_by_page"][1]
+    assert "cleaned_tokens_count" in page_meta
+    assert "diff_hash" in page_meta
+    assert "cleaning_ops" in page_meta
+    assert "needs_review" in page_meta
+    assert "profile" in page_meta
+    assert page_meta["profile"] == "test_profile"
+    assert "whitespace" in page_meta["cleaning_ops"]
+
+
+def test_chunking_preserves_raw_text_after_cleaning():
+    """Test that chunking preserves raw text even when cleaning has run."""
+    observability = build_null_observability()
+    ingestion = IngestionService(observability=observability)
+    extraction = ExtractionService(observability=observability)
+    cleaning = CleaningService(observability=observability)
+    chunking = ChunkingService(observability=observability)
+
+    document = extraction.extract(ingestion.ingest(build_document()))
+    # Create page with raw text containing extra whitespace
+    raw_text = "This   is   a   test   with   extra   spaces"
+    updated_page = document.pages[0].model_copy(update={"text": raw_text})
+    document = document.model_copy(update={"pages": [updated_page]})
+    
+    # Run cleaning first (this normalizes whitespace)
+    document = cleaning.clean(document)
+    assert document.pages[0].text == raw_text  # Raw text preserved
+    assert document.pages[0].cleaned_text == "This is a test with extra spaces"  # Cleaned version
+    
+    # Run chunking (should preserve raw text in chunks)
+    document = chunking.chunk(document, size=20, overlap=5)
+    
+    # Verify chunks preserve raw text
+    chunk = document.pages[0].chunks[0]
+    assert chunk.text == raw_text[:20]  # Raw text slice
+    assert chunk.cleaned_text == "This is a test with"  # Cleaned slice
+    assert chunk.text != chunk.cleaned_text  # They should differ
+    assert "  " in chunk.text  # Raw text has extra spaces
+    assert "  " not in chunk.cleaned_text  # Cleaned text normalized
+
+
+def test_chunking_preserves_raw_text_without_cleaning():
+    """Test that chunking works correctly when cleaning hasn't run."""
+    observability = build_null_observability()
+    ingestion = IngestionService(observability=observability)
+    extraction = ExtractionService(observability=observability)
+    chunking = ChunkingService(observability=observability)
+
+    document = extraction.extract(ingestion.ingest(build_document()))
+    raw_text = "This is a test without cleaning"
+    updated_page = document.pages[0].model_copy(update={"text": raw_text})
+    document = document.model_copy(update={"pages": [updated_page]})
+    
+    # Run chunking without cleaning
+    document = chunking.chunk(document, size=20, overlap=5)
+    
+    # Verify chunks have raw text, but no cleaned text
+    chunk = document.pages[0].chunks[0]
+    assert chunk.text == raw_text[:20]  # Raw text slice
+    assert chunk.cleaned_text is None  # No cleaned text when cleaning hasn't run
+
+
+def test_chunking_attaches_cleaning_metadata_to_chunks():
+    """Test that chunking attaches cleaning metadata to chunks."""
+    observability = build_null_observability()
+    ingestion = IngestionService(observability=observability)
+    extraction = ExtractionService(observability=observability)
+    cleaning = CleaningService(observability=observability, profile="test_profile")
+    chunking = ChunkingService(observability=observability)
+
+    document = extraction.extract(ingestion.ingest(build_document()))
+    updated_page = document.pages[0].model_copy(update={"text": "Hello   world"})
+    document = document.model_copy(update={"pages": [updated_page]})
+    
+    # Run cleaning to generate metadata
+    document = cleaning.clean(document)
+    
+    # Run chunking to attach metadata to chunks
+    document = chunking.chunk(document, size=20, overlap=5)
+    
+    # Verify cleaning metadata is attached to chunks
+    chunk = document.pages[0].chunks[0]
+    assert chunk.metadata is not None
+    assert "cleaning" in chunk.metadata.extra
+    
+    cleaning_meta = chunk.metadata.extra["cleaning"]
+    assert "segment_id" in cleaning_meta
+    assert cleaning_meta["segment_id"] == chunk.id
+    assert "cleaned_tokens_count" in cleaning_meta
+    assert "diff_hash" in cleaning_meta
+    assert "cleaning_ops" in cleaning_meta
+    assert "needs_review" in cleaning_meta
+    assert "profile" in cleaning_meta
+    assert cleaning_meta["profile"] == "test_profile"
+
+
 def test_vectorization_attaches_vectors():
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)

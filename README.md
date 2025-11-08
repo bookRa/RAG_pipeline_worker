@@ -125,7 +125,7 @@ The dashboard at `http://localhost:8000/dashboard` is designed for manual QA:
 1. Upload `tests/test_document.pdf` (or any PDF/DOCX/PPT) via the form.
 2. The pipeline runs end-to-end and streams its structured stage payloads into the dashboard.
 3. Inspect the embedded document preview alongside the extraction, chunking, and enrichment cards. Each card shows the JSON output emitted by that service, including page/chunk counts and metadata offsets.
-4. The last 10 runs are kept in memory for comparison. Restarting the server clears the history by design.
+4. Pipeline runs are persisted to disk via `FileSystemPipelineRunRepository`. The dashboard displays the last 10 runs from persistent storage, so run history persists across server restarts. Configure the storage location using the `RUN_ARTIFACTS_DIR` environment variable.
 
 Stage cards are rendered vertically with numbered markers so you can follow the exact flow: **(1) ingestion → (2) extraction → (3) cleaning → (4) chunking → (5) enrichment → (6) vectorization**. Each card reflects whatever payload the corresponding service emits, so extending a service automatically enriches the dashboard. The dashboard uses a lightweight vanilla-JS `fetch` shim to update the run details asynchronously—no external libraries are required.
 
