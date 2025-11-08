@@ -17,6 +17,7 @@
       font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       background: #050918;
       color: #dbeafe;
+      overflow-x: hidden;
     }
     a {
       color: #67e8f9;
@@ -32,12 +33,14 @@
     }
     header .header-content {
       max-width: 1200px;
+      width: 100%;
       margin: 0 auto;
       padding: 20px 32px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 24px;
+      box-sizing: border-box;
     }
     header h1 {
       margin: 0;
@@ -54,9 +57,12 @@
       font-size: 0.9rem;
     }
     main {
+      width: 100%;
       max-width: 1200px;
       margin: 0 auto;
       padding: 48px 32px 64px;
+      box-sizing: border-box;
+      overflow-x: hidden;
     }
     footer {
       border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -64,32 +70,47 @@
       font-size: 0.85rem;
       color: #94a3b8;
       max-width: 1200px;
+      width: 100%;
       margin: 0 auto 48px;
       display: flex;
       justify-content: space-between;
+      box-sizing: border-box;
     }
     .layout {
       display: flex;
       gap: 32px;
       align-items: flex-start;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      min-width: 0;
     }
     .panel {
       background: rgba(15, 23, 42, 0.9);
       border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 16px;
       padding: 28px;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     .panel h2, .panel h3, .panel h4 {
       margin-top: 0;
     }
     .upload-panel {
       flex: 1.8;
+      min-width: 0;
+      max-width: 100%;
       display: flex;
       flex-direction: column;
       gap: 24px;
+      box-sizing: border-box;
     }
     .history-panel {
       flex: 1;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     .form-group {
       display: flex;
@@ -144,10 +165,29 @@
     .history-card:first-child {
       border-color: rgba(52, 211, 153, 0.5);
     }
+    section {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      max-width: 100%;
+    }
+    p, span, div {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
     .stage-grid {
       display: flex;
       flex-direction: column;
       gap: 18px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
     }
     .stage-card {
       border-radius: 14px;
@@ -157,11 +197,49 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
     }
     .stage-header {
       display: flex;
       align-items: center;
       gap: 18px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .stage-header:hover {
+      opacity: 0.9;
+    }
+    .stage-toggle {
+      margin-left: auto;
+      background: rgba(148, 163, 184, 0.2);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .stage-toggle:hover {
+      background: rgba(148, 163, 184, 0.3);
+      color: #dbeafe;
+    }
+    .stage-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease-out, opacity 0.2s ease-out;
+    }
+    .stage-content.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin: 0;
+      padding: 0;
+    }
+    .stage-content.expanded {
+      max-height: 10000px;
+      opacity: 1;
     }
     .stage-number {
       width: 38px;
@@ -175,13 +253,56 @@
       color: #fb7185;
       background: rgba(15, 23, 42, 0.6);
     }
+    .stage-output-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    .stage-output-container {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: visible;
+      box-sizing: border-box;
+    }
     pre {
       background: rgba(15, 23, 42, 0.7);
       border-radius: 10px;
       padding: 14px;
       font-size: 0.8rem;
-      overflow-x: auto;
+      margin: 0;
       border: 1px solid rgba(148, 163, 184, 0.15);
+      white-space: pre;
+      word-wrap: normal;
+      min-width: min-content;
+      display: inline-block;
+    }
+    .copy-button {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      cursor: pointer;
+      transition: all 0.2s;
+      z-index: 10;
+    }
+    .copy-button:hover {
+      background: rgba(52, 211, 153, 0.2);
+      border-color: rgba(52, 211, 153, 0.5);
+      color: #34d399;
+    }
+    .copy-button.copied {
+      background: rgba(52, 211, 153, 0.3);
+      border-color: #34d399;
+      color: #34d399;
     }
     .chunk-list {
       display: flex;
@@ -189,6 +310,10 @@
       gap: 10px;
       max-height: 420px;
       overflow-y: auto;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
     }
     .chunk-card {
       border: 1px solid rgba(148, 163, 184, 0.2);
@@ -196,20 +321,36 @@
       padding: 10px 12px;
       font-size: 0.9rem;
       background: rgba(15, 23, 42, 0.8);
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
     }
     iframe.preview {
       width: 100%;
+      max-width: 100%;
       height: 450px;
       border: 1px solid rgba(148, 163, 184, 0.25);
       border-radius: 12px;
       background: white;
+      box-sizing: border-box;
     }
     .two-column {
       display: flex;
       gap: 20px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      min-width: 0;
     }
     .two-column > article {
-      flex: 1;
+      flex: 1 1 0;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
     }
   </style>
 </head>
@@ -238,6 +379,146 @@
     <span>FastAPI + Vanilla JS</span>
   </footer>
   <script>
+    const DashboardStageManager = {
+      collapsedStages: new Set(),
+      
+      init(container) {
+        if (!container) return;
+        
+        // Restore collapsed state
+        this.restoreState(container);
+        
+        // Attach event listeners
+        container.querySelectorAll('.stage-header').forEach(header => {
+          header.addEventListener('click', (e) => {
+            // Don't toggle if clicking the toggle button directly
+            if (e.target.classList.contains('stage-toggle')) return;
+            this.toggleStage(header);
+          });
+        });
+        
+        container.querySelectorAll('.stage-toggle').forEach(button => {
+          button.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const header = button.closest('.stage-header');
+            if (header) this.toggleStage(header);
+          });
+        });
+        
+        container.querySelectorAll('.copy-button').forEach(button => {
+          button.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.copyStageOutput(button);
+          });
+        });
+      },
+      
+      toggleStage(header) {
+        const stageCard = header.closest('.stage-card');
+        if (!stageCard) return;
+        
+        const stageId = stageCard.dataset.stageId;
+        const content = stageCard.querySelector('.stage-content');
+        const toggle = header.querySelector('.stage-toggle');
+        
+        if (!content || !toggle) return;
+        
+        const isCollapsed = content.classList.contains('collapsed');
+        
+        if (isCollapsed) {
+          content.classList.remove('collapsed');
+          content.classList.add('expanded');
+          toggle.textContent = 'Collapse';
+          this.collapsedStages.delete(stageId);
+        } else {
+          content.classList.remove('expanded');
+          content.classList.add('collapsed');
+          toggle.textContent = 'Expand';
+          this.collapsedStages.add(stageId);
+        }
+      },
+      
+      copyStageOutput(button) {
+        const wrapper = button.closest('.stage-output-wrapper');
+        if (!wrapper) return;
+        
+        const pre = wrapper.querySelector('pre');
+        if (!pre) return;
+        
+        const text = pre.textContent || pre.innerText;
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(() => {
+            button.textContent = 'Copied!';
+            button.classList.add('copied');
+            setTimeout(() => {
+              button.textContent = 'Copy';
+              button.classList.remove('copied');
+            }, 2000);
+          }).catch(err => {
+            console.error('Failed to copy:', err);
+            this.fallbackCopy(text, button);
+          });
+        } else {
+          this.fallbackCopy(text, button);
+        }
+      },
+      
+      fallbackCopy(text, button) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          if (button) {
+            button.textContent = 'Copied!';
+            button.classList.add('copied');
+            setTimeout(() => {
+              button.textContent = 'Copy';
+              button.classList.remove('copied');
+            }, 2000);
+          }
+        } catch (err) {
+          console.error('Fallback copy failed:', err);
+        }
+        document.body.removeChild(textarea);
+      },
+      
+      saveState(container) {
+        const stageCards = container.querySelectorAll('.stage-card');
+        stageCards.forEach(card => {
+          const stageId = card.dataset.stageId;
+          if (stageId) {
+            const content = card.querySelector('.stage-content');
+            if (content && content.classList.contains('collapsed')) {
+              this.collapsedStages.add(stageId);
+            } else {
+              this.collapsedStages.delete(stageId);
+            }
+          }
+        });
+      },
+      
+      restoreState(container) {
+        const stageCards = container.querySelectorAll('.stage-card');
+        stageCards.forEach(card => {
+          const stageId = card.dataset.stageId;
+          if (stageId && this.collapsedStages.has(stageId)) {
+            const content = card.querySelector('.stage-content');
+            const toggle = card.querySelector('.stage-toggle');
+            if (content && toggle) {
+              content.classList.remove('expanded');
+              content.classList.add('collapsed');
+              toggle.textContent = 'Expand';
+            }
+          }
+        });
+      }
+    };
+
     const DashboardRuns = {
       watchers: new Map(),
       start(container) {
@@ -263,12 +544,19 @@
 
         const poll = async () => {
           try {
+            // Save collapse state before updating
+            DashboardStageManager.saveState(container);
+            
             const response = await fetch(`/dashboard/runs/${runId}/fragment`);
             if (!response.ok) {
               throw new Error('Polling failed');
             }
             const html = await response.text();
             container.innerHTML = html;
+            
+            // Reinitialize stage manager and restore state
+            DashboardStageManager.init(container);
+            
             const nextTarget = container.querySelector('[data-run-id]');
             if (!nextTarget) {
               this.stop(runId);
@@ -304,6 +592,10 @@
       if (!form || !output) {
         return;
       }
+      
+      // Initialize stage manager for initial page load
+      DashboardStageManager.init(output);
+      
       const submitButton = form.querySelector('button[type="submit"]');
       const setLoading = (state) => {
         if (indicator) {
@@ -329,6 +621,7 @@
             throw new Error('Upload failed');
           }
           output.innerHTML = html;
+          DashboardStageManager.init(output);
           DashboardRuns.start(output);
         } catch (error) {
           console.error(error);
@@ -342,6 +635,7 @@
     });
 
     window.DashboardRuns = DashboardRuns;
+    window.DashboardStageManager = DashboardStageManager;
   </script>
 </body>
 

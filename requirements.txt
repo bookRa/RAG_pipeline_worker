@@ -7,3 +7,4 @@ pytest
 requests
 httpx
 jinja2
+pdfplumber

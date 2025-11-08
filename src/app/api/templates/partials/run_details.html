@@ -1,6 +1,6 @@
-<div style="display:flex;flex-direction:column;gap:28px;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
+<div style="display:flex;flex-direction:column;gap:28px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
   {% set chunk_stage = run.get_stage('chunking') %}
-  <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;width:100%;max-width:100%;min-width:0;box-sizing:border-box;">
     <div>
       <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active run</div>
       <h3 style="margin:6px 0 4px;font-size:1.6rem;">{{ run.filename }}</h3>
@@ -61,7 +61,7 @@
     <div class="stage-grid">
       {% for stage_name, stage_title in stage_sequence %}
         {% set stage = run.get_stage(stage_name) %}
-        <article class="stage-card" style="opacity: {{ 1 if stage else 0.6 }};">
+        <article class="stage-card" data-stage-id="{{ stage_name }}" style="opacity: {{ 1 if stage else 0.6 }};">
           <div class="stage-header">
             <div class="stage-number">{{ loop.index }}</div>
             <div>
@@ -73,25 +73,37 @@
             {% else %}
               <span style="margin-left:auto;font-size:0.85rem;color:#94a3b8;">Pending…</span>
             {% endif %}
+            {% if stage %}
+              <button class="stage-toggle" type="button">Collapse</button>
+            {% endif %}
           </div>
           {% if stage %}
-            <pre>{{ stage.details | tojson(indent=2) }}</pre>
-            {% if stage.name == "enrichment" %}
-              <p style="font-size:0.9rem;color:#e0f2fe;">
-                Document summary:
-                {% if stage.details.document_summary %}
-                  "{{ stage.details.document_summary }}"
-                {% else %}
-                  Not available yet.
-                {% endif %}
-              </p>
-            {% elif stage.name == "cleaning" %}
-              <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
-            {% elif stage.name == "vectorization" %}
-              <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
-            {% endif %}
+            <div class="stage-content expanded">
+              <div class="stage-output-wrapper">
+                <button class="copy-button" type="button">Copy</button>
+                <div class="stage-output-container">
+                  <pre>{{ stage.details | tojson(indent=2) }}</pre>
+                </div>
+              </div>
+              {% if stage.name == "enrichment" %}
+                <p style="font-size:0.9rem;color:#e0f2fe;">
+                  Document summary:
+                  {% if stage.details.document_summary %}
+                    "{{ stage.details.document_summary }}"
+                  {% else %}
+                    Not available yet.
+                  {% endif %}
+                </p>
+              {% elif stage.name == "cleaning" %}
+                <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
+              {% elif stage.name == "vectorization" %}
+                <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
+              {% endif %}
+            </div>
           {% else %}
-            <p style="color:#94a3b8;font-size:0.9rem;">Waiting for {{ stage_title }}…</p>
+            <div class="stage-content expanded">
+              <p style="color:#94a3b8;font-size:0.9rem;">Waiting for {{ stage_title }}…</p>
+            </div>
           {% endif %}
         </article>
       {% endfor %}

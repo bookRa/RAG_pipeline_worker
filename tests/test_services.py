@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from src.app.adapters.pdf_parser import PdfParserAdapter
 from src.app.application.interfaces import NullObservabilityRecorder
 from src.app.domain.models import Document
 from src.app.persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
@@ -45,6 +48,7 @@ def test_ingestion_persists_raw_file(tmp_path):
 
 
 def test_extraction_creates_pages():
+    """Test that extraction creates pages (may use placeholder if no parser provided)."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
     extraction = ExtractionService(observability=observability)
@@ -72,6 +76,7 @@ def test_extraction_uses_parser_with_file_bytes():
 
 
 def test_extraction_reads_from_stored_path(tmp_path):
+    """Test that extraction can read file bytes from stored path using a stub parser."""
     class PathParser:
         def supports_type(self, file_type: str) -> bool:
             return True
@@ -88,6 +93,68 @@ def test_extraction_reads_from_stored_path(tmp_path):
 
     result = extraction.extract(document)
     assert result.pages[0].text == "Stored bytes"
+
+
+def test_extraction_with_real_pdf_parser():
+    """Test that extraction service works with the real PDF parser adapter."""
+    test_pdf_path = Path(__file__).parent / "test_document.pdf"
+    
+    # Skip test if test PDF doesn't exist
+    if not test_pdf_path.exists():
+        pytest.skip(f"Test PDF not found at {test_pdf_path}")
+    
+    pdf_bytes = test_pdf_path.read_bytes()
+    observability = build_null_observability()
+    pdf_parser = PdfParserAdapter()
+    extraction = ExtractionService(observability=observability, parsers=[pdf_parser])
+    ingestion = IngestionService(observability=observability)
+    
+    # Create document and ingest it
+    document = build_document()
+    document = ingestion.ingest(document, file_bytes=pdf_bytes)
+    
+    # Extract using real PDF parser
+    result = extraction.extract(document, file_bytes=pdf_bytes)
+    
+    # Verify extraction succeeded
+    assert result.status == "extracted"
+    assert len(result.pages) == 10  # test_document.pdf has 10 pages
+    
+    # Verify pages have text content
+    assert all(page.text is not None for page in result.pages)
+    assert any(len(page.text) > 0 for page in result.pages)  # At least some pages have text
+
+
+def test_extraction_with_real_pdf_parser_from_stored_path(tmp_path):
+    """Test that extraction can read PDF from stored path using real PDF parser."""
+    test_pdf_path = Path(__file__).parent / "test_document.pdf"
+    
+    # Skip test if test PDF doesn't exist
+    if not test_pdf_path.exists():
+        pytest.skip(f"Test PDF not found at {test_pdf_path}")
+    
+    pdf_bytes = test_pdf_path.read_bytes()
+    observability = build_null_observability()
+    pdf_parser = PdfParserAdapter()
+    extraction = ExtractionService(observability=observability, parsers=[pdf_parser])
+    ingestion = IngestionService(
+        observability=observability,
+        repository=FileSystemIngestionRepository(tmp_path),
+    )
+    
+    # Create document and ingest it (this stores the file)
+    document = build_document()
+    document = ingestion.ingest(document, file_bytes=pdf_bytes)
+    
+    # Extract without providing file_bytes - should read from stored path
+    result = extraction.extract(document)
+    
+    # Verify extraction succeeded
+    assert result.status == "extracted"
+    assert len(result.pages) == 10  # test_document.pdf has 10 pages
+    
+    # Verify pages have text content
+    assert all(page.text is not None for page in result.pages)
 
 
 def test_chunking_generates_chunks():
