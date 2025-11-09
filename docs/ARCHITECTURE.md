@@ -116,6 +116,30 @@ Domain Models
 4. **API layer** uses use cases, not services directly
    - Keeps HTTP concerns separate from business logic
 
+### Layer Interaction Diagram
+
+```mermaid
+flowchart TB
+    Client[Clients & Dashboard] --> API[FastAPI Routers]
+    API --> UseCases[Application Use Cases]
+    UseCases --> Services[Pipeline Services]
+    Services --> Ports[/Ports & Interfaces/]
+    Ports --> Domain[[Domain Models]]
+
+    subgraph Adapters["Adapters Implementing Ports"]
+        direction LR
+        Persistence[Persistence Adapters]
+        Observability[Observability Adapter]
+        Parsers[Parser & LLM Adapters]
+    end
+
+    Persistence -.implements.-> Ports
+    Observability -.implements.-> Ports
+    Parsers -.implements.-> Ports
+```
+
+_Figure 2: Hexagonal layering—requests travel downward through application layers while adapters in the outer ring implement the inward-facing ports._
+
 ---
 
 ## Pipeline Services at a Glance

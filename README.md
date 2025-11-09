@@ -19,6 +19,42 @@ The pipeline executes the following stages in order. Each service returns a new 
 
 `PipelineRunner` coordinates these services, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
 
+### Visual Pipeline Flow
+
+```mermaid
+flowchart LR
+    subgraph Runner["Pipeline Runner"]
+        direction LR
+        Upload([Upload API or Dashboard]) --> Ingestion
+        Ingestion --> Extraction
+        Extraction --> Cleaning
+        Cleaning --> Chunking
+        Chunking --> Enrichment
+        Enrichment --> Vectorization
+    end
+
+    Ingestion -->|raw copy| RawArtifacts[(Ingestion Storage)]
+    Vectorization -->|final snapshot| DocumentStore[(Document Store)]
+    DocumentStore --> DashboardViews[Dashboard Views]
+
+    Runner -.stage events.-> RunManager[[Pipeline Run Manager]]
+    RunManager --> RunTimeline[(Run Timeline Artifacts)]
+    RunTimeline --> DashboardViews
+
+    subgraph Telemetry["Structured Telemetry"]
+        Observability[[Observability Recorder]]
+    end
+
+    Ingestion -.-> Observability
+    Extraction -.-> Observability
+    Cleaning -.-> Observability
+    Chunking -.-> Observability
+    Enrichment -.-> Observability
+    Vectorization -.-> Observability
+```
+
+_Figure 1: End-to-end pipeline flow showing how uploads move through services, storage targets, observability, and dashboard-facing artifacts._
+
 ---
 
 ## Repository Structure
