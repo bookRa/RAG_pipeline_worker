@@ -4,6 +4,8 @@ This document outlines the roles and responsibilities of the AI agents involved 
 Following Specification-Driven Development (SDD), the specification is the single source of truth and agents operate on it to produce plans, code, and tests.  
 Each agent works independently within well-defined boundaries, enabling parallel development while preserving cohesion.
 
+> Directory anchors: specifications and decision records live under `docs/`, production code under `src/app/`, and executable tests under `tests/`. Research artifacts specifically live in `docs/research/`.
+
 ---
 
 ## Research Agent
@@ -18,7 +20,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| After research or user feedback | - Draft and update Round Requirements documents (e.g., `Round_1_Requirements.md`) capturing product needs, user stories, and non-functional requirements.<br>- Define acceptance criteria and scope for each iteration.<br>- Resolve ambiguities and refine scope through dialogue with stakeholders. | Updated requirements files with clear acceptance criteria. | Research agent, Planning agent |
+| After research or user feedback | - Draft and update round/iteration requirement documents (store them under `docs/` using a predictable name like `docs/Round_2_Requirements.md`).<br>- Define acceptance criteria and scope for each iteration.<br>- Resolve ambiguities and refine scope through dialogue with stakeholders. | Updated requirements files under `docs/` with clear acceptance criteria. | Research agent, Planning agent |
 
 ---
 
@@ -26,7 +28,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| New round of work after requirements are frozen | - Design high-level architecture and module breakdown that satisfy requirements and align with hexagonal principles.<br>- Identify domain models, ports, adapters, and services.<br>- Create a work plan specifying which modules to implement or modify and assign tasks to agents. | Implementation plan in Markdown outlining module responsibilities, sequence of work, and interface definitions. | Specification agent |
+| New round of work after requirements are frozen | - Design high-level architecture and module breakdown that satisfy requirements and align with hexagonal principles.<br>- Identify domain models, ports, adapters, and services that live under `src/app/`.<br>- Create a work plan specifying which modules to implement or modify and assign tasks to agents (publish plans under `docs/` so downstream agents can reference them). | Implementation plan in Markdown outlining module responsibilities, sequence of work, and interface definitions. | Specification agent |
 
 ---
 
@@ -34,7 +36,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| When implementation plan is ready | - Generate the code skeleton corresponding to the plan.<br>- Implement data models, services, adapters, and API endpoints with stub or production logic.<br>- Ensure module interfaces match the specification and are stable.<br>- Respect separation of concerns; the domain layer must not depend on adapters.<br>- **Verify architectural compliance**: Run architectural tests (`tests/test_architecture.py`) to ensure dependency flow is correct and layers remain properly isolated.<br>- Ensure domain models only import standard library and Pydantic (no infrastructure dependencies).<br>- Ensure services only depend on ports/interfaces, not concrete adapters.<br>- Update `requirements.txt` minimally. | Commit(s) containing source code under `src/`, updated `requirements.txt`, and documentation as needed. **All architectural tests must pass before completion.** | Planning agent |
+| When implementation plan is ready | - Generate the code skeleton corresponding to the plan.<br>- Implement data models, services, adapters, and API endpoints with stub or production logic in `src/app/`.<br>- Ensure module interfaces match the specification and are stable.<br>- Respect separation of concerns; the domain layer must not depend on adapters.<br>- **Verify architectural compliance**: Run architectural tests (`tests/test_architecture.py`) to ensure dependency flow is correct and layers remain properly isolated.<br>- Ensure domain models only import standard library and Pydantic (no infrastructure dependencies).<br>- Ensure services only depend on ports/interfaces, not concrete adapters.<br>- Update `requirements.txt` minimally. | Commit(s) containing source code under `src/`, updated `requirements.txt`, and documentation as needed. **All architectural tests must pass before completion.** | Planning agent |
 
 ---
 
@@ -42,7 +44,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| Concurrent with Coding Agent | - Write unit tests for each new or modified module using pytest.<br>- Create end-to-end tests that exercise the FastAPI endpoints via TestClient.<br>- Ensure tests reflect acceptance criteria in the specification.<br>- Provide mocks or fakes for external dependencies so that tests run offline. | Test files under `tests/` and test documentation. | Planning agent, Coding agent |
+| Concurrent with Coding Agent | - Write unit tests for each new or modified module using pytest.<br>- Create end-to-end tests that exercise the FastAPI endpoints via TestClient.<br>- Ensure tests reflect acceptance criteria in the specification.<br>- Provide mocks or fakes for external dependencies so that tests run offline. | Test files under `tests/` (mirroring the module layout) and any supporting documentation. | Planning agent, Coding agent |
 
 ---
 
@@ -50,7 +52,7 @@ Each agent works independently within well-defined boundaries, enabling parallel
 
 | Trigger & Inputs | Responsibilities | Outputs / Deliverables | Dependent on |
 |------------------|------------------|--------------------------|---------------|
-| When any pipeline stage is implemented or changed | - Propose logging/tracing instrumentation and metrics to capture the inputs and outputs of each service.<br>- Ensure that observability concerns are decoupled from business logic.<br>- Define structured log schemas that include metadata fields (e.g., chunk IDs, document IDs, processing times). | Documentation on observability strategy and logging code in `observability/` modules. | Planning agent, Coding agent |
+| When any pipeline stage is implemented or changed | - Propose logging/tracing instrumentation and metrics to capture the inputs and outputs of each service.<br>- Ensure that observability concerns are decoupled from business logic.<br>- Define structured log schemas that include metadata fields (e.g., chunk IDs, document IDs, processing times).<br>- Keep the default adapter in `src/app/observability/` aligned with new telemetry fields or provide new adapters as needed. | Documentation on observability strategy and logging code in `src/app/observability/` modules. | Planning agent, Coding agent |
 
 ---
 

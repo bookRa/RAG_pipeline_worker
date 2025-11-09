@@ -1,28 +1,23 @@
-# Document Extraction Pipeline for RAG – v0 Skeleton
+# Document Extraction Pipeline for RAG
 
-Welcome to the first iteration (v0) of our document-processing pipeline for Retrieval Augmented Generation (RAG).  
-This repository is specification driven—the code serves the specification, not the other way around.  
-It provides a modular scaffold that team members can extend independently while maintaining a single source of truth for the data model and module interfaces.
+This repository contains a FastAPI application that ingests office documents, runs them through a deterministic document-processing pipeline, and surfaces the intermediate artifacts for Retrieval Augmented Generation (RAG) workflows. The codebase is intentionally modular: domain models capture immutable document state, services orchestrate pipeline stages, ports expose the seams for adapters, and a dashboard makes every stage observable.
 
 ---
 
-## Overview
+## Pipeline Overview
 
-This pipeline ingests documents (PDFs, DOCX, PPT) and turns them into structured, chunked data suitable for downstream RAG applications.  
-Although the current implementation contains only stub functions, the architecture follows hexagonal (ports and adapters) principles.  
-Business logic lives in a clear domain layer, while technology-specific concerns (e.g., file parsing, LLM calls, or storage) are encapsulated in adapters.  
-A FastAPI app exposes endpoints for uploading documents and inspecting intermediate results.  
-A test harness with pytest and sample tests demonstrates how each module can be exercised in isolation and end-to-end.
+The pipeline executes the following stages in order. Each service returns a new `Document` instance and emits structured telemetry through the `ObservabilityRecorder` port.
 
----
+| Stage | Service (`src/app/services`) | Resulting `Document.status` | Key Outputs |
+| --- | --- | --- | --- |
+| Ingestion | `IngestionService` | `ingested` | Copies raw bytes to `artifacts/ingestion/<document_id>/`, records checksum + content metadata |
+| Extraction | `ExtractionService` | `extracted` | Uses `DocumentParser` adapters (pdfplumber-backed PDF parser plus DOCX/PPT stubs) to create `Page` models, falling back to placeholder text if parsing fails |
+| Cleaning | `CleaningService` | `cleaned` | Normalizes whitespace, records `cleaning_report` plus `cleaning_metadata_by_page` so chunking can attach cleaning metadata |
+| Chunking | `ChunkingService` | `chunked` | Slices each page into overlapping `Chunk` objects, keeps raw text + cleaned text slices, attaches cleaning metadata |
+| Enrichment | `EnrichmentService` | `enriched` | Invokes the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub) to title/summary chunks and stitch a lightweight document summary |
+| Vectorization | `VectorService` | `vectorized` | Generates deterministic placeholder vectors per chunk, stores sample vectors and vector dimension on document metadata |
 
-## Why RAG Pipelines Need Structure
-
-Retrieval-augmented generation systems perform better when the source material is broken into meaningful chunks, each enriched with metadata.  
-Chunking improves retrieval accuracy and response quality by preserving context and avoiding information overload.  
-After chunking the document, adding metadata—such as unique IDs, titles, summaries, and keywords—helps support filtering and full-text search.  
-Cleaning text by normalizing case, removing stop words, and correcting spelling improves vector comparisons.  
-Our skeleton implements these stages as separate services so that the team can experiment with different strategies without changing unrelated code.
+`PipelineRunner` coordinates these services, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
 
 ---
 
@@ -30,68 +25,89 @@ Our skeleton implements these stages as separate services so that the team can e
 
 ```
 RAG_pipeline_worker/
-│
-├── README.md
 ├── AGENTS.md
-├── Round_1_Requirements.md
+├── README.md
 ├── requirements.txt
-├── .pre-commit-config.yaml
-│
+├── artifacts/                 # File-system persistence targets (configurable via env vars)
+│   ├── documents/
+│   ├── ingestion/
+│   └── runs/
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── Extraction_Service_Implementation_Guide.md
+│   ├── LLM_Integration_Implementation_Guide.md
+│   └── research/
+│       └── README.md
 ├── src/
 │   └── app/
-│       ├── __init__.py
-│       ├── main.py
-│       ├── config.py
-│       ├── container.py
-│       ├── domain/
-│       │   ├── __init__.py
-│       │   ├── models.py
-│       │   └── run_models.py
+│       ├── api/
+│       │   ├── dashboard.py            # Manual QA dashboard + upload form
+│       │   ├── routers.py              # REST API (upload/list/get)
+│       │   ├── task_scheduler.py       # BackgroundTasks adapter
+│       │   └── templates/
+│       ├── adapters/                   # Parser + LLM summary stubs
 │       ├── application/
-│       │   ├── __init__.py
-│       │   ├── interfaces.py
-│       │   └── use_cases/
-│       │       ├── __init__.py
-│       │       ├── upload_document_use_case.py
-│       │       ├── list_documents_use_case.py
-│       │       └── get_document_use_case.py
-│       ├── services/
-│       │   ├── __init__.py
-│       │   ├── ingestion_service.py
-│       │   ├── extraction_service.py
-│       │   ├── cleaning_service.py
-│       │   ├── chunking_service.py
-│       │   ├── enrichment_service.py
-│       │   ├── vector_service.py
-│       │   ├── pipeline_runner.py
-│       │   └── run_manager.py
-│       ├── adapters/
-│       │   ├── __init__.py
-│       │   ├── pdf_parser.py
-│       │   ├── docx_parser.py
-│       │   ├── ppt_parser.py
-│       │   └── llm_client.py
-│       ├── persistence/
-│       │   ├── __init__.py
-│       │   ├── ports.py
-│       │   └── adapters/
-│       │       ├── __init__.py
-│       │       ├── filesystem.py
-│       │       ├── document_filesystem.py
-│       │       └── ingestion_filesystem.py
-│       ├── observability/
-│       │   ├── __init__.py
-│       │   └── logger.py
-│       └── api/
-│           ├── __init__.py
-│           ├── routers.py
-│           └── dashboard.py
-│
-└── tests/
-    ├── __init__.py
-    ├── test_services.py
-    └── test_end_to_end.py
-````
+│       │   ├── interfaces.py           # Ports (DocumentParser, SummaryGenerator, ObservabilityRecorder, TaskScheduler)
+│       │   └── use_cases/              # Upload/List/Get use cases
+│       ├── config.py
+│       ├── container.py                # Composition root wiring concrete adapters
+│       ├── domain/                     # Immutable models + pipeline run dataclasses
+│       ├── observability/              # LoggingObservabilityRecorder adapter
+│       ├── persistence/                # Repository ports + filesystem adapters
+│       ├── services/                   # Pipeline stage implementations
+│       └── main.py                     # FastAPI entry point
+├── static/
+│   └── uploads/                        # Dashboard document previews
+├── tests/
+│   ├── test_architecture.py            # Import guardrails (hexagonal compliance)
+│   ├── test_dashboard.py               # Dashboard flow and background runs
+│   ├── test_end_to_end.py              # Upload/list/get API round-trip
+│   ├── test_pdf_parser.py              # pdfplumber adapter tests
+│   ├── test_persistence_filesystem.py  # Repository adapters
+│   ├── test_run_manager.py
+│   ├── test_services.py
+│   └── test_use_cases.py
+└── tmp/                                # Scratch space for manual experiments
+```
+
+---
+
+## Core Modules
+
+- **Domain models (`src/app/domain`)** – `Document`, `Page`, `Chunk`, and `Metadata` capture every transformation applied to an upload. Helper methods like `add_page` and `add_chunk` always return copies, preserving immutability.
+- **Application layer (`src/app/application`)** – Protocols in `interfaces.py` define ports for document parsers, summary generators, schedulers, and observability recorders. Use cases (Upload/List/Get) translate HTTP concerns into pipeline invocations.
+- **Services (`src/app/services`)** – Each class encapsulates one stage of the pipeline and depends strictly on domain models + ports. `PipelineRunner` strings the stages together, and `PipelineRunManager` handles persistence plus async execution via the injected `TaskScheduler`.
+- **Adapters (`src/app/adapters`)** – Contain infrastructure-specific code: `PdfParserAdapter` wraps `pdfplumber`, the DOCX/PPT parsers are still placeholders, and `LLMSummaryAdapter` is a lightweight stub that truncates text. Swapping in production-ready adapters happens without changing services.
+- **Persistence (`src/app/persistence`)** – Defines repository ports plus filesystem-backed adapters:
+  - `FileSystemIngestionRepository` stores raw uploads;
+  - `FileSystemDocumentRepository` persists processed `Document` snapshots;
+  - `FileSystemPipelineRunRepository` captures per-stage JSON artifacts for the dashboard.
+- **Observability (`src/app/observability/logger.py`)** – Default adapter that writes structured JSON payloads to Python logging. Inject a different `ObservabilityRecorder` to push traces elsewhere.
+- **Composition (`src/app/container.py`)** – Centralizes dependency injection, reads environment variables (`RUN_ARTIFACTS_DIR`, `INGESTION_STORAGE_DIR`, `DOCUMENT_STORAGE_DIR`, `PIPELINE_STAGE_LATENCY`), and exposes fully-wired use cases to the FastAPI routes.
+
+---
+
+## FastAPI Surface
+
+- `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
+- `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
+- `GET /documents/{doc_id}` – Fetches a single processed document.
+- `GET /dashboard` – Renders the manual test harness. Uploads kick off `PipelineRunManager.run_async`, and the UI polls `/dashboard/runs/{run_id}/fragment` to stream stage details, chunk previews, metrics, and duration data. File previews are served from `static/uploads/`.
+
+The dashboard uses only server-side templates (Jinja2) plus a small amount of vanilla JS to refresh runs. No external frontend build tooling is required.
+
+---
+
+## Data & Artifacts
+
+All persistence paths default to the `artifacts/` directory inside the repo but can be overridden via environment variables:
+
+- `RUN_ARTIFACTS_DIR` → timeline JSON for each pipeline run (consumed by the dashboard)
+- `INGESTION_STORAGE_DIR` → immutable upload copies + checksums
+- `DOCUMENT_STORAGE_DIR` → processed document snapshots read by the API/use cases
+- `PIPELINE_STAGE_LATENCY` → optional float (seconds) used to simulate slow stages and make dashboard updates easier to see
+
+The dashboard stores uploaded files under `static/uploads/` for inline previews. Clean up the `artifacts/` and `static/uploads/` directories periodically during local development if disk space becomes an issue.
 
 ---
 
@@ -99,132 +115,46 @@ RAG_pipeline_worker/
 
 ### Install Dependencies
 
-Use Python 3.11+ and create a virtual environment:
-
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-````
-
-### Run the Application
-
-The FastAPI app exposes minimal endpoints for uploading a document and retrieving processed results.
-To start the development server on your local machine:
-
-```bash
-uvicorn src.app.main:app --reload
 ```
 
-Navigate to `http://localhost:8000/docs` for auto-generated API documentation.
-
-### Use the Developer Dashboard
-
-The dashboard at `http://localhost:8000/dashboard` is designed for manual QA:
-
-1. Upload `tests/test_document.pdf` (or any PDF/DOCX/PPT) via the form.
-2. The pipeline runs end-to-end and streams its structured stage payloads into the dashboard.
-3. Inspect the embedded document preview alongside the extraction, chunking, and enrichment cards. Each card shows the JSON output emitted by that service, including page/chunk counts and metadata offsets.
-4. Pipeline runs are persisted to disk via `FileSystemPipelineRunRepository`. The dashboard displays the last 10 runs from persistent storage, so run history persists across server restarts. Configure the storage location using the `RUN_ARTIFACTS_DIR` environment variable.
-
-Stage cards are rendered vertically with numbered markers so you can follow the exact flow: **(1) ingestion → (2) extraction → (3) cleaning → (4) chunking → (5) enrichment → (6) vectorization**. Each card reflects whatever payload the corresponding service emits, so extending a service automatically enriches the dashboard. The dashboard uses a lightweight vanilla-JS `fetch` shim to update the run details asynchronously—no external libraries are required.
-
-Uploads run asynchronously: the dashboard immediately shows the new run, then refreshes the stage cards every ~1.5s as each stage finishes. Duration metadata (in milliseconds) is captured inside the `PipelineRunner`, so you can see exactly how long each step took once it completes.
-
-#### Persisted run artifacts
-
-All pipeline runs are persisted via a filesystem adapter that writes JSON artifacts to `artifacts/runs/` (configurable via `RUN_ARTIFACTS_DIR`). Each run folder contains the latest document snapshot plus per-stage payloads; swapping to another backend (S3, SQL, etc.) is just a matter of providing a new adapter because the dashboard interacts with the repository port only.
-
-#### Raw upload storage
-
-During ingestion the raw file bytes are copied into `artifacts/ingestion/<document_id>/` (configurable via `INGESTION_STORAGE_DIR`). The document metadata keeps a pointer and checksum so downstream stages can always retrieve the immutable source payload.
-
-#### Processed document storage
-
-After each pipeline run completes, the resulting `Document` model is stored under `artifacts/documents/` (configurable via `DOCUMENT_STORAGE_DIR`). Both the REST API and the dashboard read from this repository, so documents uploaded through `/upload` or `/dashboard` appear in the same list and can be fetched by ID.
-
-#### Observability hooks
-
-Each service now emits structured events through an `ObservabilityRecorder` port. The default adapter logs JSON payloads (stage name + metadata) via Python’s logging so CLI users and dashboard engineers share the same trace. Swap in an alternative recorder (e.g., OpenTelemetry) without touching the domain layer.
-
-#### Simulated Stage Latency
-
-The FastAPI routes instantiate each service with a configurable delay so that the UI can account for long-running stages. Set `PIPELINE_STAGE_LATENCY` (seconds) before starting `uvicorn` to tune this behavior:
+### Run the API + Dashboard
 
 ```bash
 PIPELINE_STAGE_LATENCY=0.05 uvicorn src.app.main:app --reload
 ```
 
-Use `0` to disable the artificial delay when running benchmarks or production workloads.
-
-See `docs/Dashboard_Requirements.md` for the specification that governs this view and guidance on how future services should publish data to it.
+- Visit `http://localhost:8000/docs` for the OpenAPI explorer.
+- Visit `http://localhost:8000/dashboard` to run the manual QA workflow. Upload `tests/test_document.pdf` to see every stage artifact, chunk breakdown, and duration metadata.
 
 ### Run the Tests
 
-Execute the test suite with pytest:
-
 ```bash
-pytest -q
+pytest              # full suite
+pytest tests/test_architecture.py  # enforce hexagonal import rules
 ```
 
-Service behavior is covered in `tests/test_services.py`, while `tests/test_end_to_end.py` uploads a dummy document through the FastAPI stack to assert that pages and chunks are returned. Additional test suites include:
-
-- `tests/test_use_cases.py` - Tests for use case implementations
-- `tests/test_architecture.py` - Architecture compliance tests (dependency flow, import rules)
-
----
-
-## Contribution Guidelines
-
-This project is a starting point for a team to build a robust document-processing pipeline.
-To keep the codebase maintainable and encourage parallel development:
-
-* **Follow the domain-driven, hexagonal architecture:**
-  Core domain models and use cases should not depend on the details of file parsing or LLM implementation.
-  Adaptors implement those details and can be swapped without touching the domain logic.
-  See `docs/ARCHITECTURE.md` for detailed architectural patterns and guidelines.
-
-* **Respect immutability:**
-  Domain models and services return new instances instead of mutating existing ones.
-  This ensures predictable behavior and easier testing. Use `model_copy()` for creating updated instances.
-
-* **Use dependency injection:**
-  All services accept dependencies via constructor parameters. Never import concrete adapters in services.
-  The `AppContainer` wires all dependencies at the composition root.
-
-* **Respect the data model:**
-  The `models.py` definitions are the single source of truth for the structure of documents, pages, chunks, and metadata.
-  When extending the models, update corresponding tests and ensure downstream services handle new fields.
-
-* **Keep service interfaces stable:**
-  Each service exposes a public API (e.g., `ingest()`, `extract_text()`, `chunk()`, `enrich()`).
-  Team members can experiment with new algorithms internally as long as they preserve the interfaces.
-
-* **Write tests before changing behavior:**
-  The test harness demonstrates how to add unit and integration tests.
-  New features should include tests to prevent regressions.
-  Hexagonal architecture facilitates testability by isolating external dependencies.
-
-* **Use pre-commit hooks:**
-  A simple `.pre-commit-config.yaml` is included for linting and formatting (`black`, `isort`, `flake8`).
-  Install with `pre-commit install` to run checks before committing.
-
-* **Document your changes:**
-  When adding new modules or adapting existing ones, update `Round_1_Requirements.md` or create a new specification file to reflect the changes.
-  Specification drives implementation—code should align with evolving requirements.
+- `tests/test_services.py` covers every pipeline stage plus immutability guarantees.
+- `tests/test_dashboard.py` exercises the background-run workflow.
+- `tests/test_pdf_parser.py` asserts that `pdfplumber` parsing works and errors are handled gracefully.
 
 ---
 
-## Next Steps
+## Working Guidelines
 
-The current v0 skeleton contains placeholder implementations.
-Future iterations will:
+- Keep the hexagonal boundaries intact: domain models never import adapters, services depend only on ports, and adapters hook into protocols defined under `application/interfaces.py`.
+- Preserve immutability by returning new model instances (`model_copy`) from services, and mirror this in tests whenever new behavior is introduced.
+- When adding new adapters or services, wire them through `container.py`, emit observability events, and update the relevant documentation under `docs/`.
+- Architecture tests (`tests/test_architecture.py`) must stay green before merging any change.
 
-* Implement concrete adapters for PDF/DOCX/PPT parsing using libraries such as `pdfplumber` and `python-docx`.
-* Integrate a language model for intelligent extraction of tables, images, and scanned text.
-* Add configurable chunking strategies (fixed-length, semantic, hierarchical).
-* Enrich chunks with metadata fields—ID, title, summary, keywords, entities, and questions—for filtering and retrieval.
-* Provide observability and tracing dashboards via logging or OpenTelemetry instrumentation.
-* Deploy the application to AWS environments (e.g., EC2 or Elastic Beanstalk) with secure configuration.
+---
 
-This repository is the foundation upon which those features will be built.
+## References
+
+- `docs/ARCHITECTURE.md` – Hexagonal architecture guardrails and dependency flow
+- `docs/Extraction_Service_Implementation_Guide.md` – Deep dive into the extraction stage and parser adapters
+- `docs/LLM_Integration_Implementation_Guide.md` – How the `SummaryGenerator` port enables LLM-backed enrichment
+- `AGENTS.md` – Specification-driven development workflow for research → planning → implementation

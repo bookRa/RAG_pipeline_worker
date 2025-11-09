@@ -69,7 +69,12 @@ src/app/
 │
 ├── api/                 # Web framework adapters (FastAPI)
 │   ├── routers.py
-│   └── dashboard.py
+│   ├── dashboard.py
+│   ├── task_scheduler.py
+│   └── templates/
+│       ├── base.html
+│       ├── dashboard.html
+│       └── partials/run_details.html
 │
 └── container.py         # Composition root (dependency injection)
 ```
@@ -110,6 +115,51 @@ Domain Models
 
 4. **API layer** uses use cases, not services directly
    - Keeps HTTP concerns separate from business logic
+
+---
+
+## Pipeline Services at a Glance
+
+| Stage | Class | Description | Status & Telemetry |
+| --- | --- | --- | --- |
+| Ingestion | `IngestionService` | Records the upload event, persists raw bytes through the `IngestionRepository`, computes checksum, and stamps `ingested_at`. | Sets `Document.status = "ingested"` and emits `stage="ingestion"` events containing filename, type, and size. |
+| Extraction | `ExtractionService` | Resolves a `DocumentParser` for the requested file type (pdfplumber-backed PDF parser plus DOCX/PPT stubs) and creates immutable `Page` models; falls back to placeholder text if parsing yields no pages. | Sets status to `"extracted"` and reports parser name plus per-page previews. |
+| Cleaning | `CleaningService` | Normalizes whitespace (or injected normalizer), records `cleaning_report`, and stores `cleaning_metadata_by_page` so chunking can attach metadata later. | Sets status to `"cleaned"` and logs profile + summary counts. |
+| Chunking | `ChunkingService` | Splits each page into overlapping `Chunk` slices, preserves raw text, attaches cleaned slices if available, and adds cleaning metadata under `chunk.metadata.extra`. | Sets status to `"chunked"` and returns per-page chunk arrays, offsets, and chunk counts. |
+| Enrichment | `EnrichmentService` | Ensures each chunk has a title/summary by delegating to the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub). Builds a lightweight document summary when possible. | Sets status to `"enriched"` and emits summaries for dashboard display. |
+| Vectorization | `VectorService` | Generates deterministic placeholder vectors (configurable dimension) for every chunk and stores sample vectors on document metadata to aid debugging. | Sets status to `"vectorized"` and records vector counts + sample vectors. |
+
+`PipelineRunner` executes these services sequentially, captures duration/metadata per stage, and hands the `PipelineResult` to `PipelineRunManager`. The run manager snapshots stage output via `PipelineRunRepository`, allowing the dashboard to show incremental progress while background work runs via the `TaskScheduler` port.
+
+---
+
+## Ports and Adapters in this Release
+
+- **DocumentParser** → Implemented by `PdfParserAdapter`, `DocxParserAdapter`, and `PptParserAdapter`. Only the PDF adapter talks to `pdfplumber`; the other two remain simple placeholders until real parsers are introduced.
+- **SummaryGenerator** → `LLMSummaryAdapter` truncates chunk text today, but any real LLM-backed summarizer can be swapped in without touching `EnrichmentService`.
+- **ObservabilityRecorder** → `LoggingObservabilityRecorder` bridges to Python logging and outputs JSON payloads per stage. Tests often rely on `NullObservabilityRecorder` or bespoke stubs to assert emitted events.
+- **TaskScheduler** → `BackgroundTaskScheduler` wraps FastAPI's `BackgroundTasks` so `PipelineRunManager` can execute long-running work asynchronously from dashboard requests.
+- **Repositories** → `FileSystemIngestionRepository`, `FileSystemDocumentRepository`, and `FileSystemPipelineRunRepository` implement the storage ports declared under `src/app/persistence/ports.py`. They insulate services/use cases from persistence concerns.
+
+Every adapter is wired exclusively inside `src/app/container.py`, which becomes the single place to configure environment-driven overrides (custom storage paths, alternate observability adapters, new parsers, etc.).
+
+---
+
+## Persistence & Run Tracking
+
+- Raw uploads land in `artifacts/ingestion/<document_id>/` with timestamped filenames and SHA-256 checksums. The ingestion stage stores the on-disk path inside `Document.metadata["raw_file_path"]` to support delayed parsing.
+- Processed `Document` snapshots live under `artifacts/documents/` and are loaded by the `/documents` API endpoints. These files drive the public interface for clients/tests.
+- Pipeline run metadata is written to `artifacts/runs/<run_id>/`, where `run.json` tracks status + stage order, `document.json` stores the latest document snapshot, and `stages/*.json` contains the payload for each service. The dashboard renders these files verbatim.
+- Each directory can be overridden through environment variables (`INGESTION_STORAGE_DIR`, `DOCUMENT_STORAGE_DIR`, `RUN_ARTIFACTS_DIR`) so deployments can point at shared volumes or cloud buckets without code changes.
+
+---
+
+## FastAPI Entry Points & Background Work
+
+- REST routes in `api/routers.py` depend only on use cases, keeping HTTP validation separate from business logic.
+- The dashboard routes (`api/dashboard.py`) provide a manual QA harness: uploads kick off `PipelineRunManager.run_async`, and a lightweight polling loop fetches run fragments while background tasks finalize the pipeline.
+- `api/task_scheduler.py` adapts FastAPI's `BackgroundTasks` to the `TaskScheduler` port so orchestration logic stays framework-agnostic.
+- Static assets (document previews) are served from `static/uploads/`, and templates under `api/templates/` render run details, stage cards, and histories with zero frontend build tooling.
 
 ---
 
@@ -374,4 +424,3 @@ def test_services_dont_import_concrete_adapters():
 - [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture/)
 - [Ports and Adapters Pattern](https://herbertograca.com/2017/11/16/explicit-architecture-01-ddd-hexagonal-onion-clean-cqrs-how-i-put-it-all-together/)
 - [Dependency Inversion Principle](https://en.wikipedia.org/wiki/Dependency_inversion_principle)
-

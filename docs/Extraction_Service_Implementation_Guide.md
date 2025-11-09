@@ -1,580 +1,151 @@
 # Extraction Service Implementation Guide
 
-## Introduction
-
-This guide documents the implementation of real PDF text extraction for the extraction service, replacing the previous stub/placeholder implementation. This iteration serves as a **best-practice example** for implementing changes to services while maintaining strict adherence to hexagonal architecture principles.
-
-**Purpose**: This guide demonstrates how to:
-- Replace stub implementations with real functionality
-- Maintain architectural boundaries and dependency flow
-- Write comprehensive tests that verify both functionality and architecture
-- Document decisions and rationale for future developers
+The extraction stage converts an uploaded binary into immutable `Page` models that downstream services can clean, chunk, and enrich. This guide documents the current implementation, explains how adapters are wired, and outlines the steps required to add or modify parsers while preserving our hexagonal architecture guarantees.
 
 ---
 
-## Architectural Context
-
-### Where Does the Extraction Service Fit?
-
-The extraction service is part of the **application services layer** in our hexagonal architecture:
+## Architectural Placement
 
 ```
-┌─────────────────────────────────────────┐
-│         API Layer (FastAPI)             │
-│  ┌───────────────────────────────────┐  │
-│  │      Use Cases                    │  │
-│  │  ┌─────────────────────────────┐  │  │
-│  │  │   Services                  │  │  │
-│  │  │   (ExtractionService)       │  │  │
-│  │  │   ┌──────────────────────┐ │  │  │
-│  │  │   │  Ports/Interfaces    │ │  │  │
-│  │  │   │  (DocumentParser)    │ │  │  │
-│  │  │   └──────────────────────┘ │  │  │
-│  │  └─────────────────────────────┘  │  │
-│  └───────────────────────────────────┘  │
-│  ┌───────────────────────────────────┐  │
-│  │   Adapters                       │  │
-│  │   (PdfParserAdapter)            │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
+FastAPI Routes (/upload) ──▶ UploadDocumentUseCase ──▶ PipelineRunner
+                                                     ├─ IngestionService
+                                                     ├─ ExtractionService  ◀─ DocumentParser port
+                                                     └─ …
 ```
 
-**Key Architectural Points**:
-
-1. **ExtractionService** (in `services/`) orchestrates the extraction process
-2. **DocumentParser** (in `application/interfaces.py`) is the **port** (protocol/interface)
-3. **PdfParserAdapter** (in `adapters/`) is the **adapter** (concrete implementation)
-4. The service depends on the **port**, not the adapter (dependency inversion)
-5. The adapter implements the port and lives in the infrastructure layer
-
-### Why This Architecture?
-
-**Separation of Concerns**: The service doesn't know or care about PDF parsing libraries. It only knows about the `DocumentParser` protocol. This means:
-- We can swap PDF libraries without changing the service
-- We can add new file type parsers (DOCX, PPT) without modifying the service
-- The service remains testable with stub parsers
-
-**Dependency Inversion**: The service depends on abstractions (protocols), not concrete implementations. This enables:
-- Easy testing with mock parsers
-- Flexible composition of parsers
-- Clear boundaries between layers
+- `ExtractionService` lives under `src/app/services/extraction_service.py`.
+- It depends on the domain (`Document`, `Page`), the `ObservabilityRecorder` port, and a sequence of `DocumentParser` implementations supplied via dependency injection.
+- Concrete parsers reside in `src/app/adapters/`:
+  - `PdfParserAdapter` (real implementation backed by `pdfplumber`)
+  - `DocxParserAdapter` and `PptParserAdapter` (still lightweight placeholders)
+- Dependency wiring happens exclusively inside `src/app/container.py`, which injects all available parsers when constructing the service.
 
 ---
 
-## Step-by-Step Implementation
+## Current Implementation Details
 
-### Step 1: Add External Dependency
+### Service Responsibilities
 
-**What we did**: Added `pdfplumber` to `requirements.txt`
+`ExtractionService.extract(document, file_bytes=None)` performs the following steps:
 
-**Why**: We need a Python library to extract text from PDF files. `pdfplumber` was chosen because:
-- It's modern and actively maintained
-- Handles tables and structured content well
-- Has good error handling
-- More robust than alternatives like PyPDF2
+1. **Guard rail** – If the document already has pages (e.g., re-run), return it unchanged.
+2. **Resolve parser** – Pick the first parser whose `supports_type()` method matches the normalized file extension.
+3. **Load payload** – Prefer the `file_bytes` argument, otherwise read from `document.metadata["raw_file_path"]` (written by `IngestionService`).
+4. **Parse into pages** – Call `parser.parse(payload, document.filename)` and convert every string into a `Page` model via `Document.add_page(...)`.
+5. **Fallback** – If no parser is available or parsing returns zero pages, create a single placeholder page that records filename + approximate size.
+6. **Status + telemetry** – Return a new `Document` with `status="extracted"` and emit an `extraction` observability event that includes page count, per-page previews, and the parser name (or `"placeholder"` when falling back).
 
-**Architectural Note**: External libraries belong in adapters, not services. The service never imports `pdfplumber` directly.
+The service never mutates the original document. All updates use Pydantic’s `model_copy(update=...)` to keep the domain immutable and test-friendly.
 
-**File Changed**: `requirements.txt`
+### DocumentParser Port
+
+Defined in `src/app/application/interfaces.py`:
 
 ```python
-pdfplumber
+class DocumentParser(Protocol):
+    supported_types: Sequence[str]
+    def supports_type(self, file_type: str) -> bool: ...
+    def parse(self, file_bytes: bytes, filename: str) -> list[str]: ...
 ```
+
+Any new parser must implement that protocol. Services only interact with the port, so swapping parsers never requires changes to `ExtractionService`.
+
+### PDF Parser Adapter
+
+- File: `src/app/adapters/pdf_parser.py`
+- Dependency: `pdfplumber`
+- Behavior: Iterates over PDF pages and returns the extracted text per page. All errors (corrupt PDFs, password-protected files, empty payloads) are caught and result in `[]`, allowing the service to fall back gracefully.
+
+Docx and PowerPoint adapters currently return simple placeholder strings. They satisfy the protocol today and can be upgraded independently using the same pattern shown in the PDF adapter.
+
+### Container Wiring
+
+`AppContainer` instantiates and injects every parser:
+
+```python
+self.document_parsers = [
+    PdfParserAdapter(),
+    DocxParserAdapter(),
+    PptParserAdapter(),
+]
+self.extraction_service = ExtractionService(
+    observability=self.observability,
+    latency=stage_latency,
+    parsers=self.document_parsers,
+)
+```
+
+All environment-specific configuration (e.g., enabling/disabling parsers, swapping adapters) should happen in the container to keep the rest of the codebase unaware of infrastructure choices.
 
 ---
 
-### Step 2: Implement Real PDF Parser Adapter
+## Control Flow with Ingestion
 
-**What we did**: Replaced the stub implementation in `src/app/adapters/pdf_parser.py` with real PDF extraction logic.
+1. `IngestionService` stores the raw upload (when an `IngestionRepository` is configured) and writes `raw_file_path` plus `raw_file_checksum` into `Document.metadata`.
+2. `ExtractionService` prefers the in-memory `file_bytes` value because it avoids disk I/O during the same request. If unavailable, it follows the metadata pointer and reads the stored file via `Path(...).read_bytes()`.
+3. After extraction, downstream stages (`CleaningService`, `ChunkingService`, etc.) operate purely on the `Document.pages` list—no services past extraction need to touch raw files.
 
-**Key Implementation Details**:
+This separation allows asynchronous runs kicked off from the dashboard to load the raw payload later, even if the original HTTP request terminated.
 
-1. **Protocol Compliance**: The adapter implements `DocumentParser` protocol
-   ```python
-   class PdfParserAdapter(DocumentParser):
-       supported_types: Sequence[str] = ("pdf",)
-       
-       def supports_type(self, file_type: str) -> bool: ...
-       def parse(self, file_bytes: bytes, filename: str) -> list[str]: ...
-   ```
+---
 
-2. **Error Handling**: Returns empty list on errors rather than raising exceptions
-   - **Rationale**: Allows the extraction service to fall back to placeholder text
-   - **Benefit**: Graceful degradation instead of crashes
+## Extending or Replacing Parsers
 
-3. **Page-by-Page Extraction**: Extracts text from each page separately
-   - **Rationale**: Matches the domain model (Document contains Pages)
-   - **Benefit**: Preserves page boundaries for downstream processing
+When adding a new parser or upgrading a stub:
 
-**Architectural Decisions Explained**:
+1. **Implement the protocol** – Create a class under `src/app/adapters/` that implements `DocumentParser`. Keep third-party imports inside the adapter.
+2. **Handle failure modes** – Catch parser/library-specific exceptions and return an empty list to signal “no pages extracted.” The service already handles that scenario.
+3. **Write focused tests** – Mirror `tests/test_pdf_parser.py` with unit tests that exercise happy paths plus corrupted/empty payloads. Skip tests gracefully when fixture documents are missing.
+4. **Add integration coverage** – Extend `tests/test_services.py` (or create a new test module) to run the real adapter through `ExtractionService` so we verify parser/service integration.
+5. **Wire it in the container** – Append the adapter to `AppContainer.document_parsers`. Keep ordering deterministic so the preferred parser runs first for overlapping extensions.
+6. **Update documentation** – Record the change here and in `docs/ARCHITECTURE.md` or the relevant requirements file so other agents understand the new behavior.
 
-**Why is the adapter in `adapters/` directory?**
-- Adapters are infrastructure concerns - they interact with external systems (PDF files, libraries)
-- Keeping them separate from services maintains clear boundaries
-- Services can be tested without real adapters
+---
 
-**Why does it implement a protocol?**
-- The protocol (`DocumentParser`) defines the contract
-- The service depends on the protocol, not the concrete adapter
-- This enables dependency inversion - high-level code (service) doesn't depend on low-level code (adapter)
+## Testing Strategy
 
-**Why doesn't the service know about pdfplumber?**
-- The service should be framework/library agnostic
-- If we need to change PDF libraries, we only modify the adapter
-- The service remains testable with stub parsers
+| Test | Location | Focus |
+| --- | --- | --- |
+| `test_pdf_parser.py` | `tests/test_pdf_parser.py` | Validates the pdfplumber adapter, interface compliance, and error handling. |
+| `test_services.py::test_extraction_*` | `tests/test_services.py` | Covers stub parser usage, real PDF parsing (with fixture PDF), reading from stored paths, and immutability expectations. |
+| `test_end_to_end.py` | `tests/test_end_to_end.py` | Ensures FastAPI upload requests trigger extraction and return pages/chunks. |
+| `test_dashboard.py` | `tests/test_dashboard.py` | Verifies dashboard uploads kick off pipeline runs that eventually surface extraction output in the UI. |
+| `test_architecture.py` | `tests/test_architecture.py` | Guards against services importing adapters or infrastructure packages. |
 
-**File Changed**: `src/app/adapters/pdf_parser.py`
+Run the entire suite with `pytest` or focus on extraction-related tests:
 
-**Key Code**:
-```python
-def parse(self, file_bytes: bytes, filename: str) -> list[str]:
-    """Extract text from PDF file bytes, returning one string per page."""
-    if not file_bytes:
-        return []
-    
-    try:
-        pdf_file = io.BytesIO(file_bytes)
-        page_texts: list[str] = []
-        
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text() or ""
-                page_texts.append(page_text)
-        
-        return page_texts
-    except Exception:
-        # Graceful degradation - catches all PDF parsing errors
-        # pdfplumber raises PdfminerException (from pdfplumber.utils.exceptions)
-        # which wraps pdfminer errors. Catching Exception catches all of these.
-        return []
+```bash
+pytest tests/test_pdf_parser.py tests/test_services.py -k extraction
 ```
 
 ---
 
-### Step 3: Add Unit Tests for PDF Parser Adapter
-
-**What we did**: Created `tests/test_pdf_parser.py` with comprehensive unit tests.
-
-**Test Strategy**:
-
-1. **Protocol Compliance Tests**: Verify the adapter correctly implements `DocumentParser`
-   - **Why**: Ensures the adapter can be used wherever a `DocumentParser` is expected
-   - **Benefit**: Catches interface violations early
-
-2. **Functional Tests**: Test extraction from real PDF files
-   - **Why**: Verifies the adapter actually works with real data
-   - **Benefit**: Confidence that the implementation is correct
-
-3. **Edge Case Tests**: Test error handling (empty bytes, corrupted PDFs)
-   - **Why**: Ensures graceful degradation
-   - **Benefit**: Prevents crashes in production
-
-4. **Isolation**: Tests run independently without services
-   - **Why**: Fast execution, clear failure points
-   - **Benefit**: Easy to debug when tests fail
-
-**Rationale for Test Structure**:
-
-**Why unit tests for the adapter?**
-- Test the adapter in isolation
-- Verify it correctly implements the protocol
-- Test edge cases specific to PDF parsing
-- Fast execution (no service dependencies)
-
-**Why not test the service here?**
-- Service tests belong in `test_services.py`
-- Separation of concerns: adapter tests vs. service tests
-- Each layer tested independently
-
-**File Created**: `tests/test_pdf_parser.py`
-
-**Example Test**:
-```python
-def test_parse_extracts_text_from_real_pdf():
-    """Test that parser extracts text from a real PDF file."""
-    parser = PdfParserAdapter()
-    test_pdf_path = Path(__file__).parent / "test_document.pdf"
-    pdf_bytes = test_pdf_path.read_bytes()
-    page_texts = parser.parse(pdf_bytes, "test_document.pdf")
-    
-    assert len(page_texts) == 10  # Verify page count (test_document.pdf has 10 pages)
-    assert all(isinstance(text, str) for text in page_texts)
-```
-
----
-
-### Step 4: Update Extraction Service Tests
-
-**What we did**: Added integration tests in `tests/test_services.py` that verify the service works with the real PDF parser.
-
-**Test Strategy**:
-
-1. **Kept Existing Stub Parser Tests**: Tests that use stub parsers remain unchanged
-   - **Why**: Fast, isolated unit tests for service logic
-   - **Benefit**: Quick feedback during development
-
-2. **Added Real Parser Integration Tests**: New tests use `PdfParserAdapter`
-   - **Why**: Verify end-to-end behavior with real adapters
-   - **Benefit**: Confidence that the full system works
-
-3. **Test Both Code Paths**: Test with `file_bytes` parameter and with stored file path
-   - **Why**: Verify both ways of providing PDF data work
-   - **Benefit**: Comprehensive coverage
-
-**Rationale for Test Structure**:
-
-**Why keep stub parser tests?**
-- Fast execution (no file I/O)
-- Test service logic independently of adapter implementation
-- Easy to understand what the service does vs. what the adapter does
-
-**Why add real parser tests?**
-- Verify the integration actually works
-- Catch issues with real PDF files
-- Ensure the service correctly uses the injected parser
-
-**File Modified**: `tests/test_services.py`
-
-**Example Test**:
-```python
-def test_extraction_with_real_pdf_parser():
-    """Test that extraction service works with the real PDF parser adapter."""
-    pdf_bytes = test_pdf_path.read_bytes()
-    pdf_parser = PdfParserAdapter()
-    extraction = ExtractionService(observability=observability, parsers=[pdf_parser])
-    
-    result = extraction.extract(document, file_bytes=pdf_bytes)
-    
-    assert result.status == "extracted"
-    assert len(result.pages) == 10  # test_document.pdf has 10 pages
-```
-
----
-
-### Step 5: Verify Architectural Compliance
-
-**What we did**: Verified that no architectural violations were introduced.
-
-**Verification Steps**:
-
-1. **Services Don't Import Adapters**: Verified services don't import `PdfParserAdapter` directly
-   - **Check**: `grep -r "from.*pdf_parser" src/app/services/`
-   - **Result**: No matches ✓
-
-2. **Domain Doesn't Import Infrastructure**: Verified domain layer remains pure
-   - **Check**: `grep -r "pdfplumber\|pdf_parser" src/app/domain/`
-   - **Result**: No matches ✓
-
-3. **Adapter Implements Protocol**: Verified adapter correctly implements `DocumentParser`
-   - **Check**: Code review of `PdfParserAdapter`
-   - **Result**: Implements all required methods ✓
-
-4. **Dependency Flow**: Verified dependencies point inward
-   - **Service** → **Protocol** → **Adapter** ✓
-   - **Adapter** → **Protocol** ✓
-   - **Service** ↛ **Adapter** ✓
-
-**Why This Matters**:
-
-**Architectural tests catch violations automatically**:
-- `test_architecture.py` verifies import rules
-- Prevents accidental coupling between layers
-- Ensures maintainability over time
-
-**File Verified**: `tests/test_architecture.py` (should pass without modification)
-
----
-
-## Rationale: Why Things Are Done This Way
-
-### Why Adapters Are Separate from Services
-
-**Separation of Concerns**: Adapters handle infrastructure details (file formats, external libraries), while services handle business logic (orchestration, state management).
-
-**Example**: The `ExtractionService` doesn't know about PDF files, PDF libraries, or how to parse PDFs. It only knows:
-- There are parsers that can parse documents
-- Parsers have a `parse()` method
-- Parsers return a list of page texts
-
-**Benefit**: If we need to support a new file format (e.g., EPUB), we:
-1. Create a new adapter (`EpubParserAdapter`)
-2. Wire it in the container
-3. No changes to the service needed
-
-### Why Protocols/Interfaces Enable Testability
-
-**Dependency Inversion**: Services depend on abstractions (protocols), not concrete implementations.
-
-**Example**: `ExtractionService` accepts `Sequence[DocumentParser]`, not `list[PdfParserAdapter]`.
-
-**Benefit**: In tests, we can inject stub parsers:
-```python
-class StubParser:
-    def parse(self, file_bytes: bytes, filename: str) -> list[str]:
-        return ["Page One", "Page Two"]
-
-extraction = ExtractionService(parsers=[StubParser()])
-```
-
-**Why This Matters**: 
-- Tests run fast (no file I/O)
-- Tests are deterministic (stub returns known values)
-- Tests isolate service logic from adapter implementation
-
-### Why Dependency Injection Is Used
-
-**Inversion of Control**: Dependencies are provided to services, not created by them.
-
-**Example**: `ExtractionService.__init__()` accepts `parsers` as a parameter:
-```python
-def __init__(self, parsers: Sequence[DocumentParser] | None = None):
-    self.parsers = list(parsers or [])
-```
-
-**Benefit**:
-- Services are testable (inject mocks)
-- Services are flexible (different parsers for different scenarios)
-- Services are composable (container wires dependencies)
-
-**Alternative (Bad)**: Service creates its own parser:
-```python
-# BAD - Don't do this
-def __init__(self):
-    self.parser = PdfParserAdapter()  # Hard-coded dependency
-```
-
-**Why This Is Bad**:
-- Can't test without real PDF parser
-- Can't swap implementations
-- Violates dependency inversion principle
-
-### Why Tests Are Structured This Way
-
-**Unit Tests (Adapter)**: Test the adapter in isolation
-- **Location**: `tests/test_pdf_parser.py`
-- **Purpose**: Verify adapter works correctly
-- **Dependencies**: Only the adapter and test PDF file
-
-**Integration Tests (Service)**: Test service with real adapters
-- **Location**: `tests/test_services.py`
-- **Purpose**: Verify end-to-end behavior
-- **Dependencies**: Service, adapter, test PDF file
-
-**Architectural Tests**: Verify architectural rules
-- **Location**: `tests/test_architecture.py`
-- **Purpose**: Prevent architectural violations
-- **Dependencies**: AST parsing of source code
-
-**Why This Structure**:
-- **Fast feedback**: Unit tests run quickly
-- **Confidence**: Integration tests verify real behavior
-- **Maintainability**: Architectural tests prevent technical debt
-
----
-
-## Testing Strategy: Why Each Test Was Added
-
-### Unit Tests (`test_pdf_parser.py`)
-
-**`test_pdf_parser_implements_document_parser_protocol`**
-- **Why**: Ensures the adapter can be used wherever a `DocumentParser` is expected
-- **What it verifies**: Protocol compliance
-- **Benefit**: Catches interface violations at test time
-
-**`test_supports_type_accepts_pdf`**
-- **Why**: Verifies file type detection works correctly
-- **What it verifies**: `supports_type()` method behavior
-- **Benefit**: Ensures correct parser selection
-
-**`test_parse_extracts_text_from_real_pdf`**
-- **Why**: Verifies the adapter actually extracts text from PDFs
-- **What it verifies**: Functional correctness with real data
-- **Benefit**: Confidence that the implementation works
-
-**`test_parse_handles_empty_bytes`**
-- **Why**: Ensures graceful handling of edge cases
-- **What it verifies**: Error handling for empty input
-- **Benefit**: Prevents crashes on invalid input
-
-**`test_parse_handles_corrupted_pdf`**
-- **Why**: Ensures graceful degradation on corrupted files
-- **What it verifies**: Error handling for invalid PDFs
-- **Benefit**: System doesn't crash on bad input
-
-### Integration Tests (`test_services.py`)
-
-**`test_extraction_with_real_pdf_parser`**
-- **Why**: Verifies the service correctly uses the real PDF parser
-- **What it verifies**: End-to-end extraction flow
-- **Benefit**: Confidence that service and adapter work together
-
-**`test_extraction_with_real_pdf_parser_from_stored_path`**
-- **Why**: Verifies extraction works when reading from stored file path
-- **What it verifies**: Both code paths (file_bytes vs. stored path)
-- **Benefit**: Comprehensive coverage of service behavior
-
-**Existing stub parser tests (kept unchanged)**
-- **Why**: Fast, isolated tests for service logic
-- **What they verify**: Service behavior independent of adapter
-- **Benefit**: Quick feedback during development
-
----
-
-## Common Pitfalls to Avoid
-
-### Pitfall 1: Importing Concrete Adapters in Services
-
-**❌ Wrong**:
-```python
-# In ExtractionService
-from ..adapters.pdf_parser import PdfParserAdapter
-
-def __init__(self):
-    self.parser = PdfParserAdapter()  # BAD!
-```
-
-**✅ Correct**:
-```python
-# In ExtractionService
-from ..application.interfaces import DocumentParser
-
-def __init__(self, parsers: Sequence[DocumentParser] | None = None):
-    self.parsers = list(parsers or [])  # GOOD!
-```
-
-**Why**: Services should depend on protocols, not concrete implementations.
-
-### Pitfall 2: Raising Exceptions Instead of Graceful Degradation
-
-**❌ Wrong**:
-```python
-def parse(self, file_bytes: bytes, filename: str) -> list[str]:
-    pdf = pdfplumber.open(io.BytesIO(file_bytes))
-    # Raises exception on corrupted PDF - BAD!
-```
-
-**✅ Correct**:
-```python
-def parse(self, file_bytes: bytes, filename: str) -> list[str]:
-    try:
-        pdf = pdfplumber.open(io.BytesIO(file_bytes))
-        # ...
-    except Exception:
-        return []  # Graceful degradation - catches all PDF errors
-```
-
-**Why**: Allows the service to fall back to placeholder text instead of crashing.
-
-### Pitfall 3: Testing Only with Stub Parsers
-
-**❌ Wrong**:
-```python
-# Only test with stub parser
-def test_extraction():
-    parser = StubParser()
-    # Never test with real parser
-```
-
-**✅ Correct**:
-```python
-# Test with both stub and real parser
-def test_extraction_with_stub():
-    parser = StubParser()
-    # Fast, isolated test
-
-def test_extraction_with_real_pdf_parser():
-    parser = PdfParserAdapter()
-    # Integration test with real adapter
-```
-
-**Why**: Stub tests verify service logic, real parser tests verify integration.
-
-### Pitfall 4: Modifying Service When Adding Adapters
-
-**❌ Wrong**:
-```python
-# Adding new parser requires service changes
-class ExtractionService:
-    def __init__(self):
-        self.pdf_parser = PdfParserAdapter()
-        self.docx_parser = DocxParserAdapter()  # Service knows about adapters
-```
-
-**✅ Correct**:
-```python
-# Service doesn't change when adding parsers
-class ExtractionService:
-    def __init__(self, parsers: Sequence[DocumentParser] | None = None):
-        self.parsers = list(parsers or [])  # Service doesn't know about adapters
-```
-
-**Why**: Service should be adapter-agnostic. Container wires adapters.
-
-### Pitfall 5: Skipping Architectural Verification
-
-**❌ Wrong**:
-```python
-# Implement feature, skip architecture tests
-# Hope everything is okay
-```
-
-**✅ Correct**:
-```python
-# Run architecture tests after implementation
-pytest tests/test_architecture.py
-# Verify no violations introduced
-```
-
-**Why**: Architectural tests catch violations automatically. Don't skip them.
+## Observability and Metadata
+
+- `ExtractionService` emits `stage="extraction"` events through the injected `ObservabilityRecorder`. In production the `LoggingObservabilityRecorder` prints JSON, while tests inject `NullObservabilityRecorder` or a stub to assert emitted payloads.
+- Telemetry includes the parser name (`parser_used`), total page count, and a preview per page (first 500 characters). This data flows directly into the dashboard stage cards.
+- When no parser is available, the service indicates `parser_used="placeholder"` so operators immediately understand why the output looks synthetic.
 
 ---
 
 ## Verification Checklist
 
-Before considering the implementation complete, verify:
-
-- [ ] **Dependency Added**: External library added to `requirements.txt`
-- [ ] **Adapter Implemented**: Adapter implements the protocol correctly
-- [ ] **Error Handling**: Adapter handles errors gracefully (returns empty list, doesn't crash)
-- [ ] **Unit Tests**: Adapter has comprehensive unit tests
-- [ ] **Integration Tests**: Service has tests with real adapter
-- [ ] **Architectural Compliance**: `test_architecture.py` passes
-- [ ] **No Service Changes**: Service doesn't import concrete adapters
-- [ ] **Container Wiring**: Adapter is wired in `container.py` (if not already done)
-- [ ] **Documentation**: Implementation is documented (this guide)
+- [ ] Parser implements `DocumentParser` and handles errors gracefully.
+- [ ] `ExtractionService` changes (if any) keep the API and immutability guarantees intact.
+- [ ] Container wiring instantiates the new adapter and passes it into the service.
+- [ ] Unit tests (`tests/test_pdf_parser.py` or equivalent) cover success + failure modes.
+- [ ] Service tests exercise the new parser in context.
+- [ ] `tests/test_architecture.py` passes (no forbidden imports in services/domain).
+- [ ] Documentation updated (`docs/Extraction_Service_Implementation_Guide.md`, `docs/ARCHITECTURE.md`, README if directory structure changed).
 
 ---
 
-## Summary: Key Takeaways
+## Reference Files
 
-1. **Adapters belong in `adapters/`**: Infrastructure concerns are separate from business logic
-2. **Services depend on protocols**: Use dependency inversion, not concrete imports
-3. **Test in layers**: Unit tests for adapters, integration tests for services
-4. **Verify architecture**: Run architectural tests to prevent violations
-5. **Graceful degradation**: Handle errors gracefully, don't crash
-6. **Document decisions**: Explain why things are done this way
-
----
-
-## Next Steps for Other Services
-
-When implementing similar changes for other services (e.g., cleaning, chunking, enrichment):
-
-1. **Follow the same pattern**: Adapter → Protocol → Service
-2. **Write tests at each layer**: Unit tests for adapters, integration tests for services
-3. **Verify architecture**: Run `test_architecture.py` after changes
-4. **Document rationale**: Explain architectural decisions
-5. **Keep services adapter-agnostic**: Services shouldn't know about concrete adapters
-
----
-
-## References
-
-- [Architecture Guide](./ARCHITECTURE.md) - Overall architecture documentation
-- [Hexagonal Refactor Plan](./Hexagonal_Refactor_Plan.md) - Previous refactoring work
-- [Round 1 Requirements](./Round_1_Requirements.md) - Product requirements
-
----
-
-**This guide serves as a template for future service iterations. Follow this pattern to maintain architectural integrity while adding new functionality.**
-
+- `src/app/services/extraction_service.py`
+- `src/app/adapters/pdf_parser.py`
+- `src/app/container.py`
+- `tests/test_pdf_parser.py`
+- `tests/test_services.py`
+- `docs/ARCHITECTURE.md`
+- `README.md`
