@@ -5,4 +5,5 @@ static/uploads/
 !static/uploads/.gitkeep
 artifacts/
 tests/tmp_artifacts/
+tests/source_files/
 .DS_Store
