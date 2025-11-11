@@ -77,10 +77,9 @@
 3. **LlamaIndex Bootstrap**
    - Build `src/app/adapters/llama_index/bootstrap.py` with helpers to configure `llama_index.core.Settings`, instantiate provider-specific `LLM` objects (OpenAI, internal HTTP adapter, mock), and construct ingestion pipelines.
    - Ensure bootstrap is idempotent and thread-safe.
-4. **Parsing & Cleaning Adapters**
-   - Create `ImageAwareParsingAdapter` and `CleaningAdapter` under `adapters/llama_index/`.
-   - Implement pixmap-to-LLM bridging and schema validation.
-   - Write unit tests using fake LLM clients that return canned JSON.
+4. **Parsing & Cleaning Adapters** *(🚧 in progress)*
+   - Added structured output schemas (`src/app/parsing/schemas.py`), a prompt loader (`src/app/prompts/loader.py`), and initial LlamaIndex adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`) plus prompt templates under `docs/prompts/`.
+   - Next: wire these adapters into `ParsingService`/`CleaningService`, add pixmap support, and back them with deterministic tests/fakes so CI stays offline.
 5. **Chunking Overhaul**
    - Replace the `ChunkingService` internals with LlamaIndex node parsers.
    - Surface chunking configuration via dependency injection and document experimentation tips in code comments.

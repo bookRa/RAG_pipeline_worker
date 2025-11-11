@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Callable, Protocol, Sequence, Mapping, Any
+from typing import TYPE_CHECKING, Callable, Mapping, Protocol, Sequence, Any
+
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from ..parsing.schemas import CleanedPage, ParsedPage
 
 
 class TaskScheduler(Protocol):
@@ -42,3 +45,52 @@ class NullObservabilityRecorder(ObservabilityRecorder):
     def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:  # noqa: D401
         """No-op implementation that does nothing."""
         return None
+
+
+class ParsingLLM(Protocol):
+    """LLM-driven parser that turns raw page data into structured content."""
+
+    def parse_page(
+        self,
+        *,
+        document_id: str,
+        page_number: int,
+        raw_text: str,
+        pixmap_path: str | None = None,
+    ) -> ParsedPage:
+        """Return a structured representation of a page (paragraphs, tables, figures)."""
+
+
+class CleaningLLM(Protocol):
+    """LLM-driven cleaner that normalizes parsed content."""
+
+    def clean_page(self, parsed_page: ParsedPage) -> CleanedPage:
+        """Return a cleaned version of the parsed page with normalized segments."""
+
+
+class EmbeddingGenerator(Protocol):
+    """Port describing how text embeddings are produced."""
+
+    @property
+    def dimension(self) -> int:
+        """Return the vector dimension for downstream consumers."""
+
+    def embed(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
+        """Generate embeddings for one or more text inputs."""
+
+
+class VectorStoreAdapter(Protocol):
+    """Port describing how chunk vectors are stored and retrieved."""
+
+    def upsert_chunks(self, document_id: str, vectors: Sequence[Mapping[str, Any]]) -> None:
+        """Persist vectors (with metadata) for a document."""
+
+    def delete_document(self, document_id: str) -> None:
+        """Remove all vectors associated with a document."""
+
+
+class QueryEnginePort(Protocol):
+    """Port describing how downstream systems can query stored chunks."""
+
+    def query(self, prompt: str, *, top_k: int = 5) -> Mapping[str, Any]:
+        """Execute a retrieval/query request and return structured results."""
