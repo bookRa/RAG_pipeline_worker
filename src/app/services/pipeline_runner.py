@@ -10,18 +10,18 @@ from ..domain.run_models import PipelineResult, PipelineStage
 from .chunking_service import ChunkingService
 from .cleaning_service import CleaningService
 from .enrichment_service import EnrichmentService
-from .extraction_service import ExtractionService
+from .parsing_service import ParsingService
 from .ingestion_service import IngestionService
 from .vector_service import VectorService
 
 
 class PipelineRunner:
-    """Co-ordinates the ingestion -> extraction -> chunking -> enrichment flow."""
+    """Co-ordinates the ingestion -> parsing -> chunking -> enrichment flow."""
 
     def __init__(
         self,
         ingestion: IngestionService,
-        extraction: ExtractionService,
+        parsing: ParsingService,
         cleaning: CleaningService,
         chunking: ChunkingService,
         enrichment: EnrichmentService,
@@ -29,7 +29,7 @@ class PipelineRunner:
         observability: ObservabilityRecorder,
     ) -> None:
         self.ingestion = ingestion
-        self.extraction = extraction
+        self.parsing = parsing
         self.cleaning = cleaning
         self.chunking = chunking
         self.enrichment = enrichment
@@ -38,7 +38,7 @@ class PipelineRunner:
 
     STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
         ("ingestion", "Ingestion"),
-        ("extraction", "Extraction"),
+        ("parsing", "Parsing"),
         ("cleaning", "Cleaning"),
         ("chunking", "Chunking"),
         ("enrichment", "Enrichment"),
@@ -77,11 +77,11 @@ class PipelineRunner:
         )
 
         stage_start = perf_counter()
-        document = self.extraction.extract(document, file_bytes=file_bytes)
+        document = self.parsing.parse(document, file_bytes=file_bytes)
         register_stage(
             PipelineStage(
-                name="extraction",
-                title="Extraction",
+                name="parsing",
+                title="Parsing",
                 details={
                     "page_count": len(document.pages),
                     "pages": [

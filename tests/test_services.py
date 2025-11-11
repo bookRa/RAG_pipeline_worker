@@ -11,7 +11,7 @@ from src.app.persistence.adapters.ingestion_filesystem import FileSystemIngestio
 from src.app.services.chunking_service import ChunkingService
 from src.app.services.cleaning_service import CleaningService
 from src.app.services.enrichment_service import EnrichmentService
-from src.app.services.extraction_service import ExtractionService
+from src.app.services.parsing_service import ParsingService
 from src.app.services.ingestion_service import IngestionService
 from src.app.services.pipeline_runner import PipelineRunner
 from src.app.services.vector_service import VectorService
@@ -47,17 +47,17 @@ def test_ingestion_persists_raw_file(tmp_path):
     assert updated.metadata["raw_file_checksum"]
 
 
-def test_extraction_creates_pages():
-    """Test that extraction creates pages (may use placeholder if no parser provided)."""
+def test_parsing_creates_pages():
+    """Test that parsing creates pages (may use placeholder if no parser provided)."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
-    document = extraction.extract(ingestion.ingest(build_document()))
+    parsing = ParsingService(observability=observability)
+    document = parsing.parse(ingestion.ingest(build_document()))
     assert document.pages
     assert document.pages[0].text
 
 
-def test_extraction_uses_parser_with_file_bytes():
+def test_parsing_uses_parser_with_file_bytes():
     class StubParser:
         def supports_type(self, file_type: str) -> bool:
             return True
@@ -67,16 +67,16 @@ def test_extraction_uses_parser_with_file_bytes():
 
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability, parsers=[StubParser()])
+    parsing = ParsingService(observability=observability, parsers=[StubParser()])
     document = ingestion.ingest(build_document())
 
-    result = extraction.extract(document, file_bytes=b"payload")
+    result = parsing.parse(document, file_bytes=b"payload")
     assert len(result.pages) == 2
     assert result.pages[0].text == "Page One"
 
 
-def test_extraction_reads_from_stored_path(tmp_path):
-    """Test that extraction can read file bytes from stored path using a stub parser."""
+def test_parsing_reads_from_stored_path(tmp_path):
+    """Test that parsing can read file bytes from stored path using a stub parser."""
     class PathParser:
         def supports_type(self, file_type: str) -> bool:
             return True
@@ -85,18 +85,18 @@ def test_extraction_reads_from_stored_path(tmp_path):
             return [file_bytes.decode("utf-8")]
 
     parser = PathParser()
-    extraction = ExtractionService(observability=build_null_observability(), parsers=[parser])
+    parsing = ParsingService(observability=build_null_observability(), parsers=[parser])
     document = build_document()
     stored = tmp_path / "doc.pdf"
     stored.write_bytes(b"Stored bytes")
     document = document.model_copy(update={"metadata": {**document.metadata, "raw_file_path": str(stored)}})
 
-    result = extraction.extract(document)
+    result = parsing.parse(document)
     assert result.pages[0].text == "Stored bytes"
 
 
-def test_extraction_with_real_pdf_parser():
-    """Test that extraction service works with the real PDF parser adapter."""
+def test_parsing_with_real_pdf_parser():
+    """Test that parsing service works with the real PDF parser adapter."""
     test_pdf_path = Path(__file__).parent / "test_document.pdf"
     
     # Skip test if test PDF doesn't exist
@@ -106,7 +106,7 @@ def test_extraction_with_real_pdf_parser():
     pdf_bytes = test_pdf_path.read_bytes()
     observability = build_null_observability()
     pdf_parser = PdfParserAdapter()
-    extraction = ExtractionService(observability=observability, parsers=[pdf_parser])
+    parsing = ParsingService(observability=observability, parsers=[pdf_parser])
     ingestion = IngestionService(observability=observability)
     
     # Create document and ingest it
@@ -114,10 +114,10 @@ def test_extraction_with_real_pdf_parser():
     document = ingestion.ingest(document, file_bytes=pdf_bytes)
     
     # Extract using real PDF parser
-    result = extraction.extract(document, file_bytes=pdf_bytes)
+    result = parsing.parse(document, file_bytes=pdf_bytes)
     
-    # Verify extraction succeeded
-    assert result.status == "extracted"
+    # Verify parsing succeeded
+    assert result.status == "parsed"
     assert len(result.pages) == 10  # test_document.pdf has 10 pages
     
     # Verify pages have text content
@@ -125,8 +125,8 @@ def test_extraction_with_real_pdf_parser():
     assert any(len(page.text) > 0 for page in result.pages)  # At least some pages have text
 
 
-def test_extraction_with_real_pdf_parser_from_stored_path(tmp_path):
-    """Test that extraction can read PDF from stored path using real PDF parser."""
+def test_parsing_with_real_pdf_parser_from_stored_path(tmp_path):
+    """Test that parsing can read PDF from stored path using real PDF parser."""
     test_pdf_path = Path(__file__).parent / "test_document.pdf"
     
     # Skip test if test PDF doesn't exist
@@ -136,7 +136,7 @@ def test_extraction_with_real_pdf_parser_from_stored_path(tmp_path):
     pdf_bytes = test_pdf_path.read_bytes()
     observability = build_null_observability()
     pdf_parser = PdfParserAdapter()
-    extraction = ExtractionService(observability=observability, parsers=[pdf_parser])
+    parsing = ParsingService(observability=observability, parsers=[pdf_parser])
     ingestion = IngestionService(
         observability=observability,
         repository=FileSystemIngestionRepository(tmp_path),
@@ -147,10 +147,10 @@ def test_extraction_with_real_pdf_parser_from_stored_path(tmp_path):
     document = ingestion.ingest(document, file_bytes=pdf_bytes)
     
     # Extract without providing file_bytes - should read from stored path
-    result = extraction.extract(document)
+    result = parsing.parse(document)
     
-    # Verify extraction succeeded
-    assert result.status == "extracted"
+    # Verify parsing succeeded
+    assert result.status == "parsed"
     assert len(result.pages) == 10  # test_document.pdf has 10 pages
     
     # Verify pages have text content
@@ -160,10 +160,10 @@ def test_extraction_with_real_pdf_parser_from_stored_path(tmp_path):
 def test_chunking_generates_chunks():
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
 
-    document = chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=50, overlap=10)
+    document = chunking.chunk(parsing.parse(ingestion.ingest(build_document())), size=50, overlap=10)
     page = document.pages[0]
     assert page.chunks
     assert page.chunks[0].metadata is not None
@@ -173,12 +173,12 @@ def test_chunking_generates_chunks():
 def test_enrichment_adds_summary_and_document_summary():
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
     enrichment = EnrichmentService(observability=observability)
 
     document = enrichment.enrich(
-        chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=30, overlap=5)
+        chunking.chunk(parsing.parse(ingestion.ingest(build_document())), size=30, overlap=5)
     )
 
     chunk = document.pages[0].chunks[0]
@@ -194,12 +194,12 @@ def test_enrichment_uses_summary_generator():
 
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
     enrichment = EnrichmentService(observability=observability, summary_generator=StubSummaryGenerator())
 
     document = enrichment.enrich(
-        chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=30, overlap=5)
+        chunking.chunk(parsing.parse(ingestion.ingest(build_document())), size=30, overlap=5)
     )
 
     chunk = document.pages[0].chunks[0]
@@ -210,10 +210,10 @@ def test_enrichment_uses_summary_generator():
 def test_cleaning_normalizes_text():
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     # Create a new document with updated page text
     updated_page = document.pages[0].model_copy(update={"text": "Hello   world"})
     document = document.model_copy(update={"pages": [updated_page]})
@@ -230,10 +230,10 @@ def test_cleaning_generates_segment_metadata():
     """Test that cleaning service generates segment-level metadata."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability, profile="test_profile")
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     updated_page = document.pages[0].model_copy(update={"text": "Hello   world"})
     document = document.model_copy(update={"pages": [updated_page]})
     document = cleaning.clean(document)
@@ -256,11 +256,11 @@ def test_chunking_preserves_raw_text_after_cleaning():
     """Test that chunking preserves raw text even when cleaning has run."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
     chunking = ChunkingService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     # Create page with raw text containing extra whitespace
     raw_text = "This   is   a   test   with   extra   spaces"
     updated_page = document.pages[0].model_copy(update={"text": raw_text})
@@ -287,10 +287,10 @@ def test_chunking_preserves_raw_text_without_cleaning():
     """Test that chunking works correctly when cleaning hasn't run."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     raw_text = "This is a test without cleaning"
     updated_page = document.pages[0].model_copy(update={"text": raw_text})
     document = document.model_copy(update={"pages": [updated_page]})
@@ -308,11 +308,11 @@ def test_chunking_attaches_cleaning_metadata_to_chunks():
     """Test that chunking attaches cleaning metadata to chunks."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability, profile="test_profile")
     chunking = ChunkingService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     updated_page = document.pages[0].model_copy(update={"text": "Hello   world"})
     document = document.model_copy(update={"pages": [updated_page]})
     
@@ -341,13 +341,13 @@ def test_chunking_attaches_cleaning_metadata_to_chunks():
 def test_vectorization_attaches_vectors():
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
     chunking = ChunkingService(observability=observability)
     vectorization = VectorService(observability=observability, dimension=4)
 
     document = vectorization.vectorize(
-        chunking.chunk(cleaning.clean(extraction.extract(ingestion.ingest(build_document()))))
+        chunking.chunk(cleaning.clean(parsing.parse(ingestion.ingest(build_document()))))
     )
 
     chunk = document.pages[0].chunks[0]
@@ -375,14 +375,14 @@ def test_ingestion_emits_observability_event():
 def test_pipeline_runner_emits_completion_event():
     recorder = StubObservabilityRecorder()
     ingestion = IngestionService(observability=recorder)
-    extraction = ExtractionService(observability=recorder)
+    parsing = ParsingService(observability=recorder)
     cleaning = CleaningService(observability=recorder)
     chunking = ChunkingService(observability=recorder)
     enrichment = EnrichmentService(observability=recorder)
     vectorization = VectorService(observability=recorder)
     runner = PipelineRunner(
         ingestion=ingestion,
-        extraction=extraction,
+        parsing=parsing,
         cleaning=cleaning,
         chunking=chunking,
         enrichment=enrichment,
@@ -402,7 +402,7 @@ def test_services_require_observability_parameter():
         IngestionService()  # Missing required observability parameter
 
     with pytest.raises(TypeError):
-        ExtractionService()  # Missing required observability parameter
+        ParsingService()  # Missing required observability parameter
 
     with pytest.raises(TypeError):
         CleaningService()  # Missing required observability parameter
@@ -443,10 +443,10 @@ def test_cleaning_returns_new_instance():
     """Test that CleaningService returns a new Document instance."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     original = document
     result = cleaning.clean(document)
     assert result is not original
@@ -458,11 +458,11 @@ def test_enrichment_returns_new_instance():
     """Test that EnrichmentService returns a new Document instance."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
     enrichment = EnrichmentService(observability=observability)
 
-    document = chunking.chunk(extraction.extract(ingestion.ingest(build_document())), size=30, overlap=5)
+    document = chunking.chunk(parsing.parse(ingestion.ingest(build_document())), size=30, overlap=5)
     original = document
     result = enrichment.enrich(document)
     assert result is not original
@@ -473,12 +473,12 @@ def test_vectorization_returns_new_instance():
     """Test that VectorService returns a new Document instance."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
     chunking = ChunkingService(observability=observability)
     vectorization = VectorService(observability=observability)
 
-    document = chunking.chunk(cleaning.clean(extraction.extract(ingestion.ingest(build_document()))))
+    document = chunking.chunk(cleaning.clean(parsing.parse(ingestion.ingest(build_document()))))
     original = document
     result = vectorization.vectorize(document)
     assert result is not original
@@ -486,15 +486,15 @@ def test_vectorization_returns_new_instance():
     assert result.status == "vectorized"
 
 
-def test_extraction_returns_new_instance():
-    """Test that ExtractionService returns a new Document instance."""
+def test_parsing_returns_new_instance():
+    """Test that ParsingService returns a new Document instance."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
 
     document = ingestion.ingest(build_document())
     original = document
-    result = extraction.extract(document)
+    result = parsing.parse(document)
     assert result is not original
     assert len(original.pages) == 0
     assert len(result.pages) > 0
@@ -504,10 +504,10 @@ def test_chunking_returns_new_instance():
     """Test that ChunkingService returns a new Document instance."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
 
-    document = extraction.extract(ingestion.ingest(build_document()))
+    document = parsing.parse(ingestion.ingest(build_document()))
     original = document
     result = chunking.chunk(document)
     assert result is not original

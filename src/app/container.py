@@ -14,10 +14,11 @@ from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .observability.logger import LoggingObservabilityRecorder
 from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
+from .adapters.llama_index.bootstrap import configure_llama_index
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
-from .services.extraction_service import ExtractionService
+from .services.parsing_service import ParsingService
 from .services.ingestion_service import IngestionService
 from .services.pipeline_runner import PipelineRunner
 from .services.run_manager import PipelineRunManager
@@ -51,7 +52,7 @@ class AppContainer:
             latency=stage_latency,
             repository=self.ingestion_repository,
         )
-        self.extraction_service = ExtractionService(
+        self.parsing_service = ParsingService(
             observability=self.observability,
             latency=stage_latency,
             parsers=self.document_parsers,
@@ -65,6 +66,9 @@ class AppContainer:
         )
         self.vector_service = VectorService(observability=self.observability, latency=stage_latency)
 
+        if self.settings.llm.enabled:
+            configure_llama_index(self.settings)
+
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")
         ).resolve()
@@ -72,7 +76,7 @@ class AppContainer:
 
         self.pipeline_runner = PipelineRunner(
             ingestion=self.ingestion_service,
-            extraction=self.extraction_service,
+            parsing=self.parsing_service,
             cleaning=self.cleaning_service,
             chunking=self.chunking_service,
             enrichment=self.enrichment_service,

@@ -125,7 +125,7 @@ def test_adapter_returns_summary():
 Once the summary use case is stable, the same pattern can power richer LLM integrations:
 
 - **Chunk metadata enrichment** – Generate keywords, questions, or structured metadata by extending `SummaryGenerator` or adding new ports consumed by `EnrichmentService`.
-- **LLM-backed extraction** – Swap or augment `DocumentParser` implementations with LLM-based page interpreters (still respecting the parser port). Keep PDF-to-image conversion and LLM calling inside adapters, never in services.
+- **LLM-backed parsing** – Swap or augment `DocumentParser` implementations with LLM-based page interpreters (still respecting the parser port). Keep PDF-to-image conversion and LLM calling inside adapters, never in services.
 - **Feedback loops** – Store LLM response metadata (e.g., latency, tokens, finish reasons) inside `chunk.metadata.extra["llm"]` so downstream diagnostics and dashboards can visualize quality metrics.
 
 These enhancements should continue to follow the same architectural rule: define or reuse ports in `application/interfaces.py`, keep adapters in `src/app/adapters/`, and inject them via `container.py`.
@@ -141,6 +141,14 @@ These enhancements should continue to follow the same architectural rule: define
 - [ ] Service tests confirm `EnrichmentService` copies adapter output into chunk metadata + document summary.
 - [ ] Documentation (this guide + `docs/ARCHITECTURE.md` if telemetry changes) updated with the new behavior.
 - [ ] `tests/test_architecture.py` still passes (no LLM SDK imports inside services/domain).
+
+---
+
+## Configuration Hooks
+
+- Global application configuration now lives in `src/app/config.py`. Nested models (`LLMSettings`, `EmbeddingSettings`, `ChunkingSettings`, `VectorStoreSettings`, and `PromptSettings`) can be overridden via `.env` entries such as `LLM__PROVIDER=openai` or `CHUNKING__CHUNK_SIZE=768`.
+- When `LLM__ENABLED=true`, the adapters layer invokes `configure_llama_index(settings)` (`src/app/adapters/llama_index/bootstrap.py`) which wires these values into `llama_index.core.Settings` exactly once per process. This keeps framework imports out of services while still allowing runtime tuning of models, prompts, and splitter strategies.
+- Provider-specific packages (e.g., `llama-index-llms-openai`, `llama-index-embeddings-openai`) must be installed before enabling the bootstrap; otherwise an informative `LlamaIndexBootstrapError` is raised during application startup.
 
 ---
 

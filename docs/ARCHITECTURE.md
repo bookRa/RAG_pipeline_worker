@@ -43,7 +43,7 @@ src/app/
 │
 ├── services/            # Application services (orchestration)
 │   ├── ingestion_service.py
-│   ├── extraction_service.py
+│   ├── parsing_service.py
 │   ├── cleaning_service.py
 │   ├── chunking_service.py
 │   ├── enrichment_service.py
@@ -147,7 +147,7 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 | Stage | Class | Description | Status & Telemetry |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | Records the upload event, persists raw bytes through the `IngestionRepository`, computes checksum, and stamps `ingested_at`. | Sets `Document.status = "ingested"` and emits `stage="ingestion"` events containing filename, type, and size. |
-| Extraction | `ExtractionService` | Resolves a `DocumentParser` for the requested file type (pdfplumber-backed PDF parser plus DOCX/PPT stubs) and creates immutable `Page` models; falls back to placeholder text if parsing yields no pages. | Sets status to `"extracted"` and reports parser name plus per-page previews. |
+| Parsing | `ParsingService` | Resolves a `DocumentParser` for the requested file type (pdfplumber-backed PDF parser plus DOCX/PPT stubs) and creates immutable `Page` models; falls back to placeholder text if parsing yields no pages. | Sets status to `"parsed"` and reports parser name plus per-page previews. |
 | Cleaning | `CleaningService` | Normalizes whitespace (or injected normalizer), records `cleaning_report`, and stores `cleaning_metadata_by_page` so chunking can attach metadata later. | Sets status to `"cleaned"` and logs profile + summary counts. |
 | Chunking | `ChunkingService` | Splits each page into overlapping `Chunk` slices, preserves raw text, attaches cleaned slices if available, and adds cleaning metadata under `chunk.metadata.extra`. | Sets status to `"chunked"` and returns per-page chunk arrays, offsets, and chunk counts. |
 | Enrichment | `EnrichmentService` | Ensures each chunk has a title/summary by delegating to the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub). Builds a lightweight document summary when possible. | Sets status to `"enriched"` and emits summaries for dashboard display. |

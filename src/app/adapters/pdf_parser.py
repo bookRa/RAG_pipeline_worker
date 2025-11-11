@@ -1,4 +1,4 @@
-"""PDF parser adapter using pdfplumber for text extraction."""
+"""PDF parser adapter using pdfplumber for text parsing."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class PdfParserAdapter(DocumentParser):
 
         Returns:
             List of page texts, one string per page. Returns empty list if
-            extraction fails or PDF is empty/corrupted.
+            parsing fails or PDF is empty/corrupted.
 
         Note:
             This method handles various edge cases:
@@ -59,7 +59,7 @@ class PdfParserAdapter(DocumentParser):
         except Exception:
             # PDF is corrupted, invalid format, password-protected, or other error
             # Return empty list rather than raising exception
-            # This allows the extraction service to fall back to placeholder if needed
+            # This allows the parsing service to fall back to placeholder if needed
             # Note: pdfplumber raises PdfminerException (from pdfplumber.utils.exceptions)
             # which wraps pdfminer errors (e.g., PDFSyntaxError). Catching Exception
             # catches all of these gracefully.

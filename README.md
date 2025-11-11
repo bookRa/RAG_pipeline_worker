@@ -1,4 +1,4 @@
-# Document Extraction Pipeline for RAG
+# Document Parsing Pipeline for RAG
 
 This repository contains a FastAPI application that ingests office documents, runs them through a deterministic document-processing pipeline, and surfaces the intermediate artifacts for Retrieval Augmented Generation (RAG) workflows. The codebase is intentionally modular: domain models capture immutable document state, services orchestrate pipeline stages, ports expose the seams for adapters, and a dashboard makes every stage observable.
 
@@ -11,7 +11,7 @@ The pipeline executes the following stages in order. Each service returns a new 
 | Stage | Service (`src/app/services`) | Resulting `Document.status` | Key Outputs |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | `ingested` | Copies raw bytes to `artifacts/ingestion/<document_id>/`, records checksum + content metadata |
-| Extraction | `ExtractionService` | `extracted` | Uses `DocumentParser` adapters (pdfplumber-backed PDF parser plus DOCX/PPT stubs) to create `Page` models, falling back to placeholder text if parsing fails |
+| Parsing | `ParsingService` | `parsed` | Uses `DocumentParser` adapters (pdfplumber-backed PDF parser plus DOCX/PPT stubs) to create `Page` models, falling back to placeholder text if parsing fails |
 | Cleaning | `CleaningService` | `cleaned` | Normalizes whitespace, records `cleaning_report` plus `cleaning_metadata_by_page` so chunking can attach cleaning metadata |
 | Chunking | `ChunkingService` | `chunked` | Slices each page into overlapping `Chunk` objects, keeps raw text + cleaned text slices, attaches cleaning metadata |
 | Enrichment | `EnrichmentService` | `enriched` | Invokes the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub) to title/summary chunks and stitch a lightweight document summary |
@@ -26,8 +26,8 @@ flowchart LR
     subgraph Runner["Pipeline Runner"]
         direction LR
         Upload([Upload API or Dashboard]) --> Ingestion
-        Ingestion --> Extraction
-        Extraction --> Cleaning
+        Ingestion --> Parsing
+        Parsing --> Cleaning
         Cleaning --> Chunking
         Chunking --> Enrichment
         Enrichment --> Vectorization
@@ -46,7 +46,7 @@ flowchart LR
     end
 
     Ingestion -.-> Observability
-    Extraction -.-> Observability
+    Parsing -.-> Observability
     Cleaning -.-> Observability
     Chunking -.-> Observability
     Enrichment -.-> Observability
@@ -70,7 +70,7 @@ RAG_pipeline_worker/
 │   └── runs/
 ├── docs/
 │   ├── ARCHITECTURE.md
-│   ├── Extraction_Service_Implementation_Guide.md
+│   ├── Parsing_Service_Implementation_Guide.md
 │   ├── LLM_Integration_Implementation_Guide.md
 │   └── research/
 │       └── README.md
@@ -147,15 +147,37 @@ The dashboard stores uploaded files under `static/uploads/` for inline previews.
 
 ---
 
+## Configuration
+
+`src/app/config.py` exposes typed configuration models for every integration point (LLM, embeddings, chunking, vector stores, and prompt files). Override values via environment variables or a local `.env` file using Pydantic's nested syntax. Examples:
+
+```bash
+LLM__ENABLED=true
+LLM__PROVIDER=openai
+LLM__MODEL=gpt-4o-mini
+CHUNKING__CHUNK_SIZE=768
+VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
+```
+
+When `LLM__ENABLED=true`, the new `configure_llama_index()` bootstrapper wires these settings into `llama_index.core.Settings`, keeping framework imports confined to the adapters layer.
+
+---
+
 ## Getting Started
 
 ### Install Dependencies
 
+This project now targets **Python 3.10+** so we can rely on modern typing syntax (`str | None`, `list[str]`, etc.). Recreate your virtualenv with a 3.10 interpreter (or higher) before installing dependencies:
+
 ```bash
-python3 -m venv .venv
+rm -rf .venv                   # optional: only if you are upgrading
+python3.10 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+If your system default `python3` already points to 3.10+, feel free to substitute it for `python3.10`.
 
 ### Run the API + Dashboard
 
@@ -191,6 +213,6 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 ## References
 
 - `docs/ARCHITECTURE.md` – Hexagonal architecture guardrails and dependency flow
-- `docs/Extraction_Service_Implementation_Guide.md` – Deep dive into the extraction stage and parser adapters
+- `docs/Parsing_Service_Implementation_Guide.md` – Deep dive into the parsing stage and parser adapters
 - `docs/LLM_Integration_Implementation_Guide.md` – How the `SummaryGenerator` port enables LLM-backed enrichment
 - `AGENTS.md` – Specification-driven development workflow for research → planning → implementation

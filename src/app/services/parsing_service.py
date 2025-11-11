@@ -8,7 +8,7 @@ from ..application.interfaces import DocumentParser, ObservabilityRecorder
 from ..domain.models import Document, Page
 
 
-class ExtractionService:
+class ParsingService:
     """Converts an ingested document into a structured set of pages."""
 
     def __init__(
@@ -25,7 +25,7 @@ class ExtractionService:
         if self.latency > 0:
             time.sleep(self.latency)
 
-    def extract(self, document: Document, file_bytes: bytes | None = None) -> Document:
+    def parse(self, document: Document, file_bytes: bytes | None = None) -> Document:
         self._simulate_latency()
         if document.pages:
             return document
@@ -43,15 +43,15 @@ class ExtractionService:
 
         if pages_added == 0:
             placeholder_text = (
-                f"Extracted placeholder text for {document.filename}. "
+                f"Parsed placeholder text for {document.filename}. "
                 f"Approximate size: {document.size_bytes} bytes."
             )
             updated_document = updated_document.add_page(Page(document_id=document.id, page_number=1, text=placeholder_text))
 
-        updated_document = updated_document.model_copy(update={"status": "extracted"})
+        updated_document = updated_document.model_copy(update={"status": "parsed"})
 
         self.observability.record_event(
-            stage="extraction",
+            stage="parsing",
             details={
                 "document_id": updated_document.id,
                 "page_count": len(updated_document.pages),

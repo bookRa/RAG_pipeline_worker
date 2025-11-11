@@ -60,7 +60,7 @@ class Chunk(BaseModel):
     
     Raw vs Cleaned Text:
         - `text`: Always contains the raw, immutable text slice from the source document.
-                 This is the original extraction output, preserved exactly as extracted.
+                This is the original parsing output, preserved exactly as parsed.
                  Offsets (start_offset, end_offset) reference positions in this raw text.
                  This enables precise document navigation and source citation.
         
@@ -81,7 +81,7 @@ class Chunk(BaseModel):
         id: Unique identifier for this chunk
         document_id: Reference to the parent document
         page_number: Page number where chunk originates (single page for now, extensible for multi-page)
-        text: Raw text slice from source document (immutable, preserves exact extraction)
+        text: Raw text slice from source document (immutable, preserves exact parsing output)
         start_offset: Character offset in raw page text where chunk starts (for navigation)
         end_offset: Character offset in raw page text where chunk ends (for navigation)
         cleaned_text: Optional cleaned/normalized version of the text (parallel to raw text)
@@ -107,7 +107,7 @@ class Page(BaseModel):
     during the chunking stage.
     
     Raw vs Cleaned Text:
-        - `text`: Raw, immutable text extracted from the document (preserves exact extraction output)
+        - `text`: Raw, immutable text parsed from the document (preserves exact parsing output)
         - `cleaned_text`: Optional normalized version after cleaning operations (whitespace, case, etc.)
     
     The cleaning service populates `cleaned_text` if cleaning has run. The chunking service

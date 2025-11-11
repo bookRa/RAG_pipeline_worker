@@ -68,12 +68,12 @@
    - If cleaning fails, propagate the raw parsed text and flag the chunk for manual QA (metadata field `cleaning_status="fallback"`).
 
 ## Implementation Plan
-1. **Rename Extraction ➝ Parsing**
-   - Update module names (`extraction_service.py` ➝ `parsing_service.py`, `PdfParserAdapter` ➝ `PdfParsingAdapter`, etc.), tests, documentation, and observability events (`stage="parsing"`).
-   - Adjust architecture diagrams and README references accordingly.
-2. **Configuration Foundation**
-   - Implement the expanded `Settings` models and document new env vars in `README.md` + `docs/LLM_Integration_Implementation_Guide.md`.
-   - Add `.env.example` entries for LLM/provider/vector store settings.
+1. **Rename Extraction ➝ Parsing** *(✅ code/docs updated in this iteration)*
+   - Completed: module names (`extraction_service.py` ➝ `parsing_service.py`), pipeline wiring, tests, and dashboard/README references now use the parsing terminology and emit `stage="parsing"`.
+   - Remaining: rename the parser-related adapters/ports (e.g., `DocumentParser` ➝ `ParsingAdapter`) once the LLM parsing flow lands so interfaces match the new terminology end-to-end.
+2. **Configuration Foundation** *(✅ nested config models + bootstrap module added)*
+   - Completed: expanded `src/app/config.py` with nested LLM/embedding/chunking/vector-store/prompt settings plus a `configure_llama_index` helper that wires them into `llama_index.core.Settings` when enabled.
+   - Still to do: publish `.env.example` entries and extended README/guide coverage for overriding these settings in different environments.
 3. **LlamaIndex Bootstrap**
    - Build `src/app/adapters/llama_index/bootstrap.py` with helpers to configure `llama_index.core.Settings`, instantiate provider-specific `LLM` objects (OpenAI, internal HTTP adapter, mock), and construct ingestion pipelines.
    - Ensure bootstrap is idempotent and thread-safe.
@@ -111,3 +111,6 @@
 - Implement the DocumentDB adapter once infrastructure credentials are ready; this should be a configuration change thanks to the new port.
 - Add a dashboard “single-turn query” panel when required, powered by the `QueryEngineAdapter`.
 - Explore advanced chunking strategies (semantic splitters, hybrid rule-based chunkers) by swapping the LlamaIndex splitter configuration—document experimentation steps in `docs/prompts/README.md`.
+
+## Execution Tracker
+- **2025-11-10** – Completed the Extraction ➝ Parsing rename across services, pipeline orchestration, templates, tests, and documentation; remaining parser-port renames will happen alongside the LLM-based parsing adapters.

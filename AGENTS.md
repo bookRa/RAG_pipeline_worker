@@ -1,6 +1,6 @@
 # AGENTS
 
-This document outlines the roles and responsibilities of the AI agents involved in building and evolving the document-extraction pipeline.  
+This document outlines the roles and responsibilities of the AI agents involved in building and evolving the document-parsing pipeline.  
 Following Specification-Driven Development (SDD), the specification is the single source of truth and agents operate on it to produce plans, code, and tests.  
 Each agent works independently within well-defined boundaries, enabling parallel development while preserving cohesion.
 
