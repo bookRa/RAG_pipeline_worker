@@ -205,6 +205,8 @@ RUN_CONTRACT_TESTS=1 pytest tests_contracts
 ```
 
 Ensure your `.env` (or environment) contains the necessary keys before running these tests.
+
+> Tip: The `contract` pytest mark is registered in `pytest.ini`, so you can also run `pytest -m contract` if you want to focus only on the live integration suite.
 If your system default `python3` already points to 3.10+, feel free to substitute it for `python3.10`.
 
 ### Run the API + Dashboard

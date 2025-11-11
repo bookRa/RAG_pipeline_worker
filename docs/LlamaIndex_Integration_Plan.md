@@ -78,8 +78,8 @@
    - Build `src/app/adapters/llama_index/bootstrap.py` with helpers to configure `llama_index.core.Settings`, instantiate provider-specific `LLM` objects (OpenAI, internal HTTP adapter, mock), and construct ingestion pipelines.
    - Ensure bootstrap is idempotent and thread-safe.
 4. **Parsing & Cleaning Adapters** *(🚧 in progress)*
-   - Added structured output schemas (`src/app/parsing/schemas.py`), a prompt loader (`src/app/prompts/loader.py`), and initial LlamaIndex adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`, `LlamaIndexSummaryAdapter`) plus prompt templates under `docs/prompts/`.
-   - Added response-normalization utilities so adapters can map LlamaIndex `CompletionResponse` objects into raw JSON strings, plus explicit contract tests (`tests_contracts/`) guarded by `RUN_CONTRACT_TESTS`.
+   - Added structured output schemas and prompt loader plus adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`, `LlamaIndexSummaryAdapter`), and they now optionally leverage OpenAI JSON Schema structured responses (`LLM__USE_STRUCTURED_OUTPUTS`) with an automatic fallback to raw text.
+   - Added response-normalization utilities so adapters can map `CompletionResponse` objects into raw JSON strings, plus explicit contract tests (`tests_contracts/`) guarded by `RUN_CONTRACT_TESTS`. Contract logs now print the raw response for debugging.
    - Next: wire pixmap support, expand tests with fakes for CI, and keep verifying provider contracts via the opt-in suite.
 5. **Chunking Overhaul** *(🚧 partially implemented)*
    - `ChunkingService` now consumes the configured LlamaIndex splitter (SentenceSplitter/TokenTextSplitter) via the container, while retaining the legacy sliding-window fallback, and attaches any matching parsed-paragraph IDs to chunk metadata.

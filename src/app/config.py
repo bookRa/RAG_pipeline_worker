@@ -24,6 +24,7 @@ class LLMSettings(BaseModel):
     api_key: str | None = Field(default=None, repr=False)
     timeout_seconds: float = 60.0
     max_retries: int = 2
+    use_structured_outputs: bool = True
 
 
 class EmbeddingSettings(BaseModel):

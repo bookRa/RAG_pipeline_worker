@@ -76,8 +76,16 @@ class AppContainer:
             llm_client = get_llama_llm()
             embed_model = get_llama_embedding_model()
             self.text_splitter = get_llama_text_splitter()
-            self.structured_parser = ImageAwareParsingAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
-            self.structured_cleaner = CleaningAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+            self.structured_parser = ImageAwareParsingAdapter(
+                llm=llm_client,
+                prompt_settings=self.settings.prompts,
+                use_structured_outputs=self.settings.llm.use_structured_outputs,
+            )
+            self.structured_cleaner = CleaningAdapter(
+                llm=llm_client,
+                prompt_settings=self.settings.prompts,
+                use_structured_outputs=self.settings.llm.use_structured_outputs,
+            )
             self.summary_generator = LlamaIndexSummaryAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
             self.embedding_generator = LlamaIndexEmbeddingAdapter(
                 embed_model=embed_model,
