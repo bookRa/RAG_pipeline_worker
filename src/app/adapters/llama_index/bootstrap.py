@@ -1,9 +1,9 @@
 """Helpers for configuring LlamaIndex globals from application settings.
 
 These helpers keep all LlamaIndex imports inside the adapters layer so services
-and domain code remain framework-agnostic. Configuration is guarded behind the
-`settings.llm.enabled` flag to avoid importing optional dependencies unless the
-operator explicitly opts in.
+and domain code remain framework-agnostic. The application now always boots with
+the LLM-backed pipeline, so importing this module should fail fast if the
+expected dependencies are missing.
 """
 
 from __future__ import annotations
@@ -32,13 +32,10 @@ class LlamaIndexBootstrapError(RuntimeError):
 def configure_llama_index(settings: Settings) -> None:
     """Configure global LlamaIndex settings based on application config."""
 
-    if not settings.llm.enabled:
-        return
-
     if LlamaCoreSettings is None:
         raise LlamaIndexBootstrapError(
-            "LlamaIndex packages are not installed but `settings.llm.enabled` is true. "
-            "Install `llama-index-core` (and provider-specific extras) to continue."
+            "LlamaIndex packages are not installed. Install `llama-index-core` (and "
+            "provider-specific extras) to continue."
         )
 
     cache_key = (
@@ -134,3 +131,27 @@ def _build_callback_manager() -> Any:
         return None
     token_counter = TokenCountingHandler()
     return CallbackManager([token_counter])
+
+
+def get_llama_llm() -> Any:
+    """Return the configured LLM instance."""
+
+    if LlamaCoreSettings is None or getattr(LlamaCoreSettings, "llm", None) is None:
+        raise LlamaIndexBootstrapError("LlamaIndex LLM has not been configured.")
+    return LlamaCoreSettings.llm
+
+
+def get_llama_embedding_model() -> Any:
+    """Return the configured embedding model."""
+
+    if LlamaCoreSettings is None or getattr(LlamaCoreSettings, "embed_model", None) is None:
+        raise LlamaIndexBootstrapError("LlamaIndex embedding model has not been configured.")
+    return LlamaCoreSettings.embed_model
+
+
+def get_llama_text_splitter() -> Any:
+    """Return the configured text splitter."""
+
+    if LlamaCoreSettings is None or getattr(LlamaCoreSettings, "text_splitter", None) is None:
+        raise LlamaIndexBootstrapError("LlamaIndex text splitter has not been configured.")
+    return LlamaCoreSettings.text_splitter

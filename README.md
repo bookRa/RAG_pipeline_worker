@@ -152,14 +152,13 @@ The dashboard stores uploaded files under `static/uploads/` for inline previews.
 `src/app/config.py` exposes typed configuration models for every integration point (LLM, embeddings, chunking, vector stores, and prompt files). Override values via environment variables or a local `.env` file using Pydantic's nested syntax. Examples:
 
 ```bash
-LLM__ENABLED=true
 LLM__PROVIDER=openai
 LLM__MODEL=gpt-4o-mini
 CHUNKING__CHUNK_SIZE=768
 VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
 ```
 
-When `LLM__ENABLED=true`, the new `configure_llama_index()` bootstrapper wires these settings into `llama_index.core.Settings`, keeping framework imports confined to the adapters layer.
+Install the required LlamaIndex extras before running the app (at minimum `pip install llama-index-core llama-index-llms-openai llama-index-embeddings-openai`). The bootstrapper wires these settings into `llama_index.core.Settings` during startup, keeping framework imports confined to the adapters layer.
 
 ---
 

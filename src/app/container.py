@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,12 +10,19 @@ from .adapters.docx_parser import DocxParserAdapter
 from .adapters.llm_client import LLMSummaryAdapter
 from .adapters.pdf_parser import PdfParserAdapter
 from .adapters.ppt_parser import PptParserAdapter
+from .adapters.llama_index.bootstrap import (
+    LlamaIndexBootstrapError,
+    configure_llama_index,
+    get_llama_llm,
+    get_llama_text_splitter,
+)
+from .adapters.llama_index.cleaning_adapter import CleaningAdapter
+from .adapters.llama_index.parsing_adapter import ImageAwareParsingAdapter
 from .persistence.adapters.document_filesystem import FileSystemDocumentRepository
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .observability.logger import LoggingObservabilityRecorder
 from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
-from .adapters.llama_index.bootstrap import configure_llama_index
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
@@ -23,6 +31,9 @@ from .services.ingestion_service import IngestionService
 from .services.pipeline_runner import PipelineRunner
 from .services.run_manager import PipelineRunManager
 from .services.vector_service import VectorService
+
+
+logger = logging.getLogger(__name__)
 
 
 class AppContainer:
@@ -44,6 +55,9 @@ class AppContainer:
             PptParserAdapter(),
         ]
         self.summary_generator = LLMSummaryAdapter()
+        self.structured_parser = None
+        self.structured_cleaner = None
+        self.text_splitter = None
 
         self.observability = LoggingObservabilityRecorder()
 
@@ -52,22 +66,39 @@ class AppContainer:
             latency=stage_latency,
             repository=self.ingestion_repository,
         )
+        try:
+            configure_llama_index(self.settings)
+            llm_client = get_llama_llm()
+            self.text_splitter = get_llama_text_splitter()
+            self.structured_parser = ImageAwareParsingAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+            self.structured_cleaner = CleaningAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+        except LlamaIndexBootstrapError as exc:
+            logger.warning("LlamaIndex not configured, falling back to stubbed pipeline: %s", exc)
+
         self.parsing_service = ParsingService(
             observability=self.observability,
             latency=stage_latency,
             parsers=self.document_parsers,
+            structured_parser=self.structured_parser,
         )
-        self.cleaning_service = CleaningService(observability=self.observability, latency=stage_latency)
-        self.chunking_service = ChunkingService(observability=self.observability, latency=stage_latency)
+        self.cleaning_service = CleaningService(
+            observability=self.observability,
+            latency=stage_latency,
+            structured_cleaner=self.structured_cleaner,
+        )
+        self.chunking_service = ChunkingService(
+            observability=self.observability,
+            latency=stage_latency,
+            chunk_size=self.settings.chunking.chunk_size,
+            chunk_overlap=self.settings.chunking.chunk_overlap,
+            text_splitter=self.text_splitter,
+        )
         self.enrichment_service = EnrichmentService(
             observability=self.observability,
             latency=stage_latency,
             summary_generator=self.summary_generator,
         )
         self.vector_service = VectorService(observability=self.observability, latency=stage_latency)
-
-        if self.settings.llm.enabled:
-            configure_llama_index(self.settings)
 
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")

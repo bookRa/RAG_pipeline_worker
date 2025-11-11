@@ -72,7 +72,7 @@
    - Completed: module names (`extraction_service.py` ➝ `parsing_service.py`), pipeline wiring, tests, and dashboard/README references now use the parsing terminology and emit `stage="parsing"`.
    - Remaining: rename the parser-related adapters/ports (e.g., `DocumentParser` ➝ `ParsingAdapter`) once the LLM parsing flow lands so interfaces match the new terminology end-to-end.
 2. **Configuration Foundation** *(✅ nested config models + bootstrap module added)*
-   - Completed: expanded `src/app/config.py` with nested LLM/embedding/chunking/vector-store/prompt settings plus a `configure_llama_index` helper that wires them into `llama_index.core.Settings` when enabled.
+   - Completed: expanded `src/app/config.py` with nested LLM/embedding/chunking/vector-store/prompt settings plus a `configure_llama_index` helper that wires them into `llama_index.core.Settings` at startup.
    - Still to do: publish `.env.example` entries and extended README/guide coverage for overriding these settings in different environments.
 3. **LlamaIndex Bootstrap**
    - Build `src/app/adapters/llama_index/bootstrap.py` with helpers to configure `llama_index.core.Settings`, instantiate provider-specific `LLM` objects (OpenAI, internal HTTP adapter, mock), and construct ingestion pipelines.
@@ -80,10 +80,9 @@
 4. **Parsing & Cleaning Adapters** *(🚧 in progress)*
    - Added structured output schemas (`src/app/parsing/schemas.py`), a prompt loader (`src/app/prompts/loader.py`), and initial LlamaIndex adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`) plus prompt templates under `docs/prompts/`.
    - Next: wire these adapters into `ParsingService`/`CleaningService`, add pixmap support, and back them with deterministic tests/fakes so CI stays offline.
-5. **Chunking Overhaul**
-   - Replace the `ChunkingService` internals with LlamaIndex node parsers.
-   - Surface chunking configuration via dependency injection and document experimentation tips in code comments.
-   - Add regression tests verifying metadata propagation and configurability.
+5. **Chunking Overhaul** *(🚧 partially implemented)*
+   - `ChunkingService` now consumes the configured LlamaIndex splitter (SentenceSplitter/TokenTextSplitter) via the container, while retaining the legacy sliding-window fallback.
+   - Next: store splitter-derived metadata (node IDs, hierarchical context) on each chunk and add regression tests covering both splitter and fallback modes.
 6. **Summary & Embedding Adapters**
    - Implement `LlamaIndexSummaryAdapter` and `LlamaIndexEmbeddingAdapter` using the bootstrap-provided LLM/embedding clients.
    - Add batching, retry, observability, and deterministic stubs for tests.
@@ -113,3 +112,4 @@
 
 ## Execution Tracker
 - **2025-11-10** – Completed the Extraction ➝ Parsing rename across services, pipeline orchestration, templates, tests, and documentation; remaining parser-port renames will happen alongside the LLM-based parsing adapters.
+- **2025-11-10** – Removed the `LLM__ENABLED` gate so LlamaIndex is configured by default, wired the new parsing/cleaning adapters into the services, and routed `ChunkingService` through the configured LlamaIndex splitter (with fallbacks).

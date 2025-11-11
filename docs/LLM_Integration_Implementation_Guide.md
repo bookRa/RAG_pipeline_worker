@@ -147,7 +147,7 @@ These enhancements should continue to follow the same architectural rule: define
 ## Configuration Hooks
 
 - Global application configuration now lives in `src/app/config.py`. Nested models (`LLMSettings`, `EmbeddingSettings`, `ChunkingSettings`, `VectorStoreSettings`, and `PromptSettings`) can be overridden via `.env` entries such as `LLM__PROVIDER=openai` or `CHUNKING__CHUNK_SIZE=768`.
-- When `LLM__ENABLED=true`, the adapters layer invokes `configure_llama_index(settings)` (`src/app/adapters/llama_index/bootstrap.py`) which wires these values into `llama_index.core.Settings` exactly once per process. This keeps framework imports out of services while still allowing runtime tuning of models, prompts, and splitter strategies.
+- On startup the adapters layer invokes `configure_llama_index(settings)` (`src/app/adapters/llama_index/bootstrap.py`) which wires these values into `llama_index.core.Settings` exactly once per process. This keeps framework imports out of services while still allowing runtime tuning of models, prompts, and splitter strategies.
 - Provider-specific packages (e.g., `llama-index-llms-openai`, `llama-index-embeddings-openai`) must be installed before enabling the bootstrap; otherwise an informative `LlamaIndexBootstrapError` is raised during application startup.
 
 ---

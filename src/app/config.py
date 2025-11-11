@@ -10,7 +10,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMSettings(BaseModel):
     """Configuration for the primary LLM provider."""
 
-    enabled: bool = False
     provider: Literal["openai", "internal", "mock"] = "openai"
     model: str = "gpt-4o-mini"
     temperature: float = 0.1

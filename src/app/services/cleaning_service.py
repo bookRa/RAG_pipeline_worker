@@ -4,7 +4,8 @@ import hashlib
 import time
 from typing import Callable
 
-from ..application.interfaces import ObservabilityRecorder
+from ..application.interfaces import CleaningLLM, ObservabilityRecorder
+from ..parsing.schemas import CleanedPage, ParsedPage
 from ..domain.models import Document
 
 
@@ -17,11 +18,13 @@ class CleaningService:
         profile: str = "default",
         normalizer: Callable[[str], str] | None = None,
         latency: float = 0.0,
+        structured_cleaner: CleaningLLM | None = None,
     ) -> None:
         self.observability = observability
         self.profile = profile
         self.normalizer = normalizer or self._default_normalizer
         self.latency = latency
+        self.structured_cleaner = structured_cleaner
 
     @staticmethod
     def _default_normalizer(text: str) -> str:
@@ -40,14 +43,24 @@ class CleaningService:
         page_summaries: list[dict[str, int]] = []
         updated_pages = []
         updated_metadata = document.metadata.copy()
-        
-        # Store page-level cleaning metadata for chunking to attach to chunks
-        # Keyed by page_number so chunking can look it up
+
         updated_metadata["cleaning_metadata_by_page"] = {}
+        llm_segments: dict[str, CleanedPage] = {}
+
+        parsed_pages_meta = updated_metadata.get("parsed_pages", {})
         
         for page in document.pages:
             raw_text = page.text or ""
             cleaned_page_text = self.normalizer(raw_text)
+            cleaned_segments: CleanedPage | None = None
+
+            if self.structured_cleaner:
+                parsed_payload = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(page.page_number)
+                if parsed_payload:
+                    parsed_page = ParsedPage.model_validate(parsed_payload)
+                    cleaned_segments = self._run_structured_cleaner(parsed_page)
+                    cleaned_page_text = "\n\n".join(segment.text for segment in cleaned_segments.segments).strip() or cleaned_page_text
+                    llm_segments[str(page.page_number)] = cleaned_segments
             updated_page = page.model_copy(update={"cleaned_text": cleaned_page_text})
             updated_pages.append(updated_page)
             
@@ -66,13 +79,16 @@ class CleaningService:
                 # Future: detect other operations (case normalization, etc.)
             
             # Store cleaning metadata keyed by page number for chunking to retrieve
-            updated_metadata["cleaning_metadata_by_page"][page.page_number] = {
+            page_meta = {
                 "cleaned_tokens_count": cleaned_tokens_count,
                 "diff_hash": diff_hash,
                 "cleaning_ops": cleaning_ops,
                 "needs_review": False,  # Can be enhanced with quality checks
                 "profile": self.profile,
             }
+            if cleaned_segments:
+                page_meta["llm_segments"] = cleaned_segments.model_dump()
+            updated_metadata["cleaning_metadata_by_page"][page.page_number] = page_meta
             
             page_summaries.append(
                 {
@@ -83,6 +99,8 @@ class CleaningService:
                 }
             )
 
+        if llm_segments:
+            updated_metadata["cleaned_pages_llm"] = {k: v.model_dump() for k, v in llm_segments.items()}
         updated_metadata["cleaning_profile"] = self.profile
         updated_metadata["cleaning_report"] = page_summaries
         
@@ -103,3 +121,7 @@ class CleaningService:
             },
         )
         return updated_document
+
+    def _run_structured_cleaner(self, parsed_page: ParsedPage) -> CleanedPage:
+        assert self.structured_cleaner  # for mypy
+        return self.structured_cleaner.clean_page(parsed_page)
