@@ -78,17 +78,18 @@
    - Build `src/app/adapters/llama_index/bootstrap.py` with helpers to configure `llama_index.core.Settings`, instantiate provider-specific `LLM` objects (OpenAI, internal HTTP adapter, mock), and construct ingestion pipelines.
    - Ensure bootstrap is idempotent and thread-safe.
 4. **Parsing & Cleaning Adapters** *(🚧 in progress)*
-   - Added structured output schemas (`src/app/parsing/schemas.py`), a prompt loader (`src/app/prompts/loader.py`), and initial LlamaIndex adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`) plus prompt templates under `docs/prompts/`.
-   - Next: wire these adapters into `ParsingService`/`CleaningService`, add pixmap support, and back them with deterministic tests/fakes so CI stays offline.
+   - Added structured output schemas (`src/app/parsing/schemas.py`), a prompt loader (`src/app/prompts/loader.py`), and initial LlamaIndex adapters (`ImageAwareParsingAdapter`, `CleaningAdapter`, `LlamaIndexSummaryAdapter`) plus prompt templates under `docs/prompts/`.
+   - Added response-normalization utilities so adapters can map LlamaIndex `CompletionResponse` objects into raw JSON strings, plus explicit contract tests (`tests_contracts/`) guarded by `RUN_CONTRACT_TESTS`.
+   - Next: wire pixmap support, expand tests with fakes for CI, and keep verifying provider contracts via the opt-in suite.
 5. **Chunking Overhaul** *(🚧 partially implemented)*
-   - `ChunkingService` now consumes the configured LlamaIndex splitter (SentenceSplitter/TokenTextSplitter) via the container, while retaining the legacy sliding-window fallback.
-   - Next: store splitter-derived metadata (node IDs, hierarchical context) on each chunk and add regression tests covering both splitter and fallback modes.
-6. **Summary & Embedding Adapters**
-   - Implement `LlamaIndexSummaryAdapter` and `LlamaIndexEmbeddingAdapter` using the bootstrap-provided LLM/embedding clients.
-   - Add batching, retry, observability, and deterministic stubs for tests.
-7. **Vector Store Adapter Layer**
-   - Define the `VectorStoreAdapter` port and initial adapters (in-memory + local LlamaIndex).
-   - Implement `DocumentDBVectorStoreAdapter` scaffold with TODOs for credentials so the interface is ready when we integrate AWS.
+   - `ChunkingService` now consumes the configured LlamaIndex splitter (SentenceSplitter/TokenTextSplitter) via the container, while retaining the legacy sliding-window fallback, and attaches any matching parsed-paragraph IDs to chunk metadata.
+   - Next: store richer splitter-derived metadata (node IDs, hierarchical context) on each chunk and add regression tests covering both splitter and fallback modes.
+6. **Summary & Embedding Adapters** *(🚧 newly added)*
+   - Added `LlamaIndexSummaryAdapter` (LLM prompt-driven) and `LlamaIndexEmbeddingAdapter` (delegates to LlamaIndex embeddings). The container now injects them into `EnrichmentService` and `VectorService`, which consumes real embeddings when the dependency is available.
+   - Next: add batching/retry instrumentation plus deterministic stubs in the test suite so CI stays offline.
+7. **Vector Store Adapter Layer** *(🚧 started with in-memory implementation)*
+   - Added the `VectorStoreAdapter` port plus an `InMemoryVectorStore` wired through `VectorService`, which now persists chunk vectors for later querying.
+   - Next: flesh out a persistent adapter (filesystem or local LlamaIndex index) and scaffold the DocumentDB implementation so swapping targets remains configuration-only.
 8. **Query & Dashboard Integration**
    - Add a `QueryEngineAdapter` that can be manually invoked via the dashboard *in the future*. For now, expose configuration hooks and routes that return “not enabled” until requirements change.
    - Document how a single-turn query workflow would plug in once prioritized.

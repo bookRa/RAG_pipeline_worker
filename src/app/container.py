@@ -15,9 +15,12 @@ from .adapters.llama_index.bootstrap import (
     configure_llama_index,
     get_llama_llm,
     get_llama_text_splitter,
+    get_llama_embedding_model,
 )
 from .adapters.llama_index.cleaning_adapter import CleaningAdapter
 from .adapters.llama_index.parsing_adapter import ImageAwareParsingAdapter
+from .adapters.llama_index.summary_adapter import LlamaIndexSummaryAdapter
+from .adapters.llama_index.embedding_adapter import LlamaIndexEmbeddingAdapter
 from .persistence.adapters.document_filesystem import FileSystemDocumentRepository
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
@@ -31,6 +34,7 @@ from .services.ingestion_service import IngestionService
 from .services.pipeline_runner import PipelineRunner
 from .services.run_manager import PipelineRunManager
 from .services.vector_service import VectorService
+from .vector_store import InMemoryVectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,7 @@ class AppContainer:
             PptParserAdapter(),
         ]
         self.summary_generator = LLMSummaryAdapter()
+        self.embedding_generator = None
         self.structured_parser = None
         self.structured_cleaner = None
         self.text_splitter = None
@@ -69,11 +74,18 @@ class AppContainer:
         try:
             configure_llama_index(self.settings)
             llm_client = get_llama_llm()
+            embed_model = get_llama_embedding_model()
             self.text_splitter = get_llama_text_splitter()
             self.structured_parser = ImageAwareParsingAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
             self.structured_cleaner = CleaningAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+            self.summary_generator = LlamaIndexSummaryAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+            self.embedding_generator = LlamaIndexEmbeddingAdapter(
+                embed_model=embed_model,
+                dimension=self.settings.embeddings.vector_dimension,
+            )
         except LlamaIndexBootstrapError as exc:
             logger.warning("LlamaIndex not configured, falling back to stubbed pipeline: %s", exc)
+            self.embedding_generator = None
 
         self.parsing_service = ParsingService(
             observability=self.observability,
@@ -98,7 +110,13 @@ class AppContainer:
             latency=stage_latency,
             summary_generator=self.summary_generator,
         )
-        self.vector_service = VectorService(observability=self.observability, latency=stage_latency)
+        self.vector_store = InMemoryVectorStore()
+        self.vector_service = VectorService(
+            observability=self.observability,
+            latency=stage_latency,
+            embedding_generator=self.embedding_generator,
+            vector_store=self.vector_store,
+        )
 
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")

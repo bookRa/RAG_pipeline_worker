@@ -160,3 +160,9 @@ These enhancements should continue to follow the same architectural rule: define
 - `src/app/container.py` – Wiring and configuration
 - `tests/test_services.py` – Enrichment-oriented tests
 - `docs/ARCHITECTURE.md` – Overall dependency flow
+
+## API Keys & Environment Setup
+
+- Local development: copy `.env.example` to `.env`, then provide your provider-specific secrets (e.g., `OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`). `pydantic-settings` automatically loads these values at startup.
+- Managed environments: define the same variables via your PaaS/infra secrets store. No code changes are required to switch providers/models—just update the environment variables and restart the service.
+- If you receive `403 model_not_found` errors, verify that your account has access to the requested model or update `LLM__MODEL` to one that is available to your project.

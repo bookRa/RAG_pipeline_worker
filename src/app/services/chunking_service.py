@@ -36,18 +36,18 @@ class ChunkingService:
         overlap = overlap if overlap is not None else self.chunk_overlap
         normalized_overlap = min(overlap, size - 1) if size > 1 else 0
         updated_document = document
+        parsed_pages_meta = document.metadata.get("parsed_pages", {})
 
         for page in document.pages:
             if page.chunks:
                 continue
 
-            # Always use raw text for Chunk.text (preserves immutable source for navigation)
             raw_text = page.text or ""
             if not raw_text:
                 continue
 
-            # Get cleaned text if available (may be None if cleaning hasn't run)
             cleaned_text = page.cleaned_text
+            parsed_page = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(str(page.page_number))
 
             segments = self._split_text(raw_text, size)
             cursor = 0
@@ -71,7 +71,11 @@ class ChunkingService:
                     # Add segment_id (chunk.id) to link metadata to this chunk
                     page_cleaning_meta["segment_id"] = chunk_id
                     chunk_extra["cleaning"] = page_cleaning_meta
-                
+
+                parsed_matches = self._match_parsed_segments(chunk_raw_text, parsed_page)
+                if parsed_matches:
+                    chunk_extra["parsed_segments"] = parsed_matches
+
                 metadata = Metadata(
                     document_id=document.id,
                     page_number=page.page_number,
@@ -107,6 +111,18 @@ class ChunkingService:
             },
         )
         return updated_document
+
+    @staticmethod
+    def _match_parsed_segments(chunk_text: str, parsed_page: dict | None) -> list[dict[str, str]]:
+        if not parsed_page:
+            return []
+        matches: list[dict[str, str]] = []
+        paragraphs = parsed_page.get("paragraphs", [])
+        for paragraph in paragraphs:
+            text = (paragraph.get("text") or "").strip()
+            if text and text in chunk_text:
+                matches.append({"id": paragraph.get("id", ""), "order": str(paragraph.get("order", ""))})
+        return matches
 
     def _split_text(self, text: str, size: int) -> list[str]:
         if self.text_splitter:

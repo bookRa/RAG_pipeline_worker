@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import time
 from random import Random
+from typing import Sequence
 
-from ..application.interfaces import ObservabilityRecorder
+from ..application.interfaces import EmbeddingGenerator, ObservabilityRecorder, VectorStoreAdapter
 from ..domain.models import Document
 
 
@@ -25,18 +26,27 @@ class VectorService:
     def __init__(
         self,
         observability: ObservabilityRecorder,
+        embedding_generator: EmbeddingGenerator | None = None,
+        vector_store: VectorStoreAdapter | None = None,
         dimension: int = 8,
         seed: int = 42,
         latency: float = 0.0,
     ) -> None:
         self.observability = observability
-        self.dimension = dimension
+        self.embedding_generator = embedding_generator
+        self.vector_store = vector_store
+        self.dimension = embedding_generator.dimension if embedding_generator else dimension
         self.random = Random(seed)
         self.latency = latency
 
     def _vector_for_text(self, text: str) -> list[float]:
         self.random.seed(hash(text) & 0xFFFFFFFF)
         return [round(self.random.random(), 3) for _ in range(self.dimension)]
+
+    def _embed_batch(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
+        if self.embedding_generator:
+            return self.embedding_generator.embed(texts)
+        return [self._vector_for_text(text) for text in texts]
 
     def vectorize(self, document: Document) -> Document:
         if self.latency > 0:
@@ -47,8 +57,9 @@ class VectorService:
         
         for page in document.pages:
             updated_chunks = []
-            for chunk in page.chunks:
-                vector = self._vector_for_text(chunk.text)
+            chunk_texts = [chunk.cleaned_text or chunk.text or "" for chunk in page.chunks]
+            embeddings = self._embed_batch(chunk_texts)
+            for chunk, vector in zip(page.chunks, embeddings):
                 
                 if chunk.metadata:
                     updated_extra = chunk.metadata.extra.copy()
@@ -79,6 +90,23 @@ class VectorService:
             }
         )
         
+        if self.vector_store:
+            payload = []
+            for page in updated_pages:
+                for chunk in page.chunks:
+                    vector = []
+                    if chunk.metadata and "vector" in chunk.metadata.extra:
+                        vector = chunk.metadata.extra["vector"]
+                    payload.append(
+                        {
+                            "chunk_id": chunk.id,
+                            "page_number": chunk.page_number,
+                            "vector": vector,
+                            "metadata": chunk.metadata.model_dump() if chunk.metadata else {},
+                        }
+                    )
+            self.vector_store.upsert_chunks(updated_document.id, payload)
+
         self.observability.record_event(
             stage="vectorization",
             details={

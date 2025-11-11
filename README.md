@@ -160,6 +160,24 @@ VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
 
 Install the required LlamaIndex extras before running the app (at minimum `pip install llama-index-core llama-index-llms-openai llama-index-embeddings-openai`). The bootstrapper wires these settings into `llama_index.core.Settings` during startup, keeping framework imports confined to the adapters layer.
 
+### API Keys & Environment Secrets
+
+LLM calls require provider-specific API keys. During local development add the keys to your `.env` file so `pydantic-settings` can load them automatically:
+
+```bash
+cp .env.example .env
+echo "LLM__API_KEY=sk-your-key" >> .env
+echo "OPENAI_API_KEY=sk-your-key" >> .env  # optional fallback for SDKs
+echo "LLM__PROVIDER=openai" >> .env
+echo "LLM__MODEL=gpt-4o-mini" >> .env
+```
+
+> **403 model_not_found?** This happens when the configured key lacks access to the model (`gpt-4o-mini` in the default config). Either request access to the model or change `LLM__MODEL` to one that your account can use (e.g., `gpt-4o-mini-2024-07-18` or another SKU) and restart the server.
+>
+> **401 missing API key?** Make sure either `LLM__API_KEY` or `OPENAI_API_KEY` is set in the environment. The code first checks `LLM__API_KEY` and falls back to `OPENAI_API_KEY`; if both are blank the OpenAI SDK will reject requests with a 401.
+
+In hosted environments (Render, AWS, etc.) define the same variables through your platform’s secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
+
 ---
 
 ## Getting Started
@@ -176,6 +194,17 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+> `.env` loading uses [`python-dotenv`](https://pypi.org/project/python-dotenv/). Make sure your virtualenv has the updated dependencies (`pip install -r requirements.txt`) so the loader can pull API keys from `.env` automatically.
+
+### Contract Tests
+
+Live API contract tests are kept in `tests_contracts/` and are **not** run with the standard `pytest` command. To execute them explicitly (and incur API usage), run:
+
+```bash
+RUN_CONTRACT_TESTS=1 pytest tests_contracts
+```
+
+Ensure your `.env` (or environment) contains the necessary keys before running these tests.
 If your system default `python3` already points to 3.10+, feel free to substitute it for `python3.10`.
 
 ### Run the API + Dashboard

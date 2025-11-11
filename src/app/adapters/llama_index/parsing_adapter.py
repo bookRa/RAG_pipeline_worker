@@ -8,6 +8,7 @@ from ...application.interfaces import ParsingLLM
 from ...config import PromptSettings
 from ...parsing.schemas import ParsedPage, ParsedParagraph
 from ...prompts.loader import load_prompt
+from .utils import extract_response_text
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,8 @@ class ImageAwareParsingAdapter(ParsingLLM):
         prompt = f"{self._system_prompt}\n\n{self._user_prompt_template}\n\n{json.dumps(payload)}"
         try:
             completion = self._llm.complete(prompt)
-            data = json.loads(completion)
+            completion_text = extract_response_text(completion)
+            data = json.loads(completion_text)
             return ParsedPage.model_validate(data)
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning("Falling back to raw parsing for doc=%s page=%s: %s", document_id, page_number, exc)

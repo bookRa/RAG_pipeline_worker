@@ -10,6 +10,7 @@ from ...application.interfaces import CleaningLLM
 from ...config import PromptSettings
 from ...parsing.schemas import CleanedPage, CleanedSegment, ParsedPage
 from ...prompts.loader import load_prompt
+from .utils import extract_response_text
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,8 @@ class CleaningAdapter(CleaningLLM):
         prompt = f"{self._system_prompt}\n\n{self._user_prompt_template}\n\n{json.dumps(request)}"
         try:
             completion = self._llm.complete(prompt)
-            data = json.loads(completion)
+            completion_text = extract_response_text(completion)
+            data = json.loads(completion_text)
             return CleanedPage.model_validate(data)
         except (ValidationError, json.JSONDecodeError) as exc:
             logger.warning(

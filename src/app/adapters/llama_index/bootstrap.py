@@ -8,10 +8,13 @@ expected dependencies are missing.
 
 from __future__ import annotations
 
-from functools import lru_cache
+import json
+import os
 from typing import Any
 
 from ...config import Settings
+
+_last_cache_key: tuple[str, ...] | None = None
 
 try:  # Optional dependency – only needed when LlamaIndex is enabled.
     from llama_index.core import Settings as LlamaCoreSettings
@@ -39,17 +42,20 @@ def configure_llama_index(settings: Settings) -> None:
         )
 
     cache_key = (
-        settings.llm.model_dump_json(sort_keys=True),
-        settings.embeddings.model_dump_json(sort_keys=True),
-        settings.chunking.model_dump_json(sort_keys=True),
-        settings.vector_store.model_dump_json(sort_keys=True),
-        settings.prompts.model_dump_json(sort_keys=True),
+        json.dumps(settings.llm.model_dump(), sort_keys=True, default=str),
+        json.dumps(settings.embeddings.model_dump(), sort_keys=True, default=str),
+        json.dumps(settings.chunking.model_dump(), sort_keys=True, default=str),
+        json.dumps(settings.vector_store.model_dump(), sort_keys=True, default=str),
+        json.dumps(settings.prompts.model_dump(), sort_keys=True, default=str),
     )
-    _configure_llama_index_cached(cache_key, settings)
+    global _last_cache_key  # noqa: PLW0603
+    if cache_key == _last_cache_key:
+        return
+    _configure_llama_index(settings)
+    _last_cache_key = cache_key
 
 
-@lru_cache(maxsize=1)
-def _configure_llama_index_cached(cache_key: tuple[str, ...], settings: Settings) -> None:
+def _configure_llama_index(settings: Settings) -> None:
     llm_client = _build_llm(settings)
     embed_model = _build_embedding(settings)
     text_splitter = _build_text_splitter(settings)
@@ -74,11 +80,17 @@ def _build_llm(settings: Settings) -> Any:
                 "`llama-index-llms-openai` is not installed."
             ) from exc
 
+        api_key = settings.llm.api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise LlamaIndexBootstrapError(
+                "OPENAI_API_KEY (or LLM__API_KEY) is required when using the OpenAI provider."
+            )
+
         return OpenAI(
             model=settings.llm.model,
             temperature=settings.llm.temperature,
             api_base=settings.llm.api_base,
-            api_key=settings.llm.api_key,
+            api_key=api_key,
             timeout=settings.llm.timeout_seconds,
             max_retries=settings.llm.max_retries,
         )

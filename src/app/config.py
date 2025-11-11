@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+ENV_PATH = ROOT_DIR / ".env"
+load_dotenv(ENV_PATH, override=False)
 
 
 class LLMSettings(BaseModel):
@@ -73,7 +79,7 @@ class Settings(BaseSettings):
     prompts: PromptSettings = PromptSettings()
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_PATH),
         env_file_encoding="utf-8",
         extra="allow",
     )
