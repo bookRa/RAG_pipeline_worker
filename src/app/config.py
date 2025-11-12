@@ -22,7 +22,7 @@ class LLMSettings(BaseModel):
     max_output_tokens: int = 256
     api_base: str | None = None
     api_key: str | None = Field(default=None, repr=False)
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 120.0
     max_retries: int = 2
     use_structured_outputs: bool = True
     use_responses_api: bool = True
@@ -50,6 +50,9 @@ class ChunkingSettings(BaseModel):
     pixmap_dpi: int = 300
     pixmap_storage_dir: Path = Path("artifacts/pixmaps")
     max_pixmap_bytes: int = 8_000_000
+    pixmap_max_width: int = 1536
+    pixmap_max_height: int = 1536
+    pixmap_resize_quality: str = "LANCZOS"
 
 
 class VectorStoreSettings(BaseModel):

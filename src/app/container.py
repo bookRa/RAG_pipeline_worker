@@ -111,6 +111,9 @@ class AppContainer:
             pixmap_dir=pixmap_dir,
             pixmap_dpi=self.settings.chunking.pixmap_dpi,
             max_pixmap_bytes=self.settings.chunking.max_pixmap_bytes,
+            pixmap_max_width=self.settings.chunking.pixmap_max_width,
+            pixmap_max_height=self.settings.chunking.pixmap_max_height,
+            pixmap_resize_quality=self.settings.chunking.pixmap_resize_quality,
         )
         self.cleaning_service = CleaningService(
             observability=self.observability,

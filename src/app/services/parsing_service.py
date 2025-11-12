@@ -28,6 +28,9 @@ class ParsingService:
         pixmap_dir: Path | None = None,
         pixmap_dpi: int = 300,
         max_pixmap_bytes: int = 8_000_000,
+        pixmap_max_width: int | None = None,
+        pixmap_max_height: int | None = None,
+        pixmap_resize_quality: str = "LANCZOS",
         pixmap_generator: PixmapFactory | None = None,
     ) -> None:
         self.observability = observability
@@ -40,7 +43,13 @@ class ParsingService:
         self.max_pixmap_bytes = max_pixmap_bytes
         self.pixmap_generator = pixmap_generator
         if self.include_images and self.pixmap_generator is None:
-            self.pixmap_generator = PixmapFactory(self.pixmap_dir, dpi=self.pixmap_dpi)
+            self.pixmap_generator = PixmapFactory(
+                self.pixmap_dir,
+                dpi=self.pixmap_dpi,
+                max_width=pixmap_max_width,
+                max_height=pixmap_max_height,
+                resize_quality=pixmap_resize_quality,
+            )
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
