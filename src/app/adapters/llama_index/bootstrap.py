@@ -231,11 +231,9 @@ def get_llama_text_splitter() -> Any:
     return LlamaCoreSettings.text_splitter
 
 
-def get_llama_multi_modal_llm() -> Any:
-    """Return the configured multi-modal LLM instance."""
+def get_llama_multi_modal_llm() -> Any | None:
+    """Return the configured multi-modal LLM instance, or None if not configured."""
 
-    if _multi_modal_llm is None:
-        raise LlamaIndexBootstrapError("Multi-modal LLM has not been configured.")
     return _multi_modal_llm
 
 
@@ -279,7 +277,12 @@ class StructuredMockLLM(LlamaIndexLLM):
         yield self.complete(prompt, formatted, **kwargs)
 
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
-        prompt = "\n".join(message.content for message in messages)
+        # Extract text from messages, handling content strings
+        prompt_parts = []
+        for message in messages:
+            if hasattr(message, "content") and message.content:
+                prompt_parts.append(str(message.content))
+        prompt = "\n".join(prompt_parts)
         return ChatResponse(message=ChatMessage(role="assistant", content=self._build_response(prompt)))
 
     def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:

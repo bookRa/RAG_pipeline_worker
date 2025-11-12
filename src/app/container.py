@@ -80,14 +80,12 @@ class AppContainer:
             llm_client = get_llama_llm()
             embed_model = get_llama_embedding_model()
             self.text_splitter = get_llama_text_splitter()
-            try:
-                vision_llm = get_llama_multi_modal_llm()
-            except LlamaIndexBootstrapError:
-                vision_llm = None
+            # Use the same OpenAI LLM (GPT-4o-mini) for both text and vision
+            # GPT-4o-mini supports vision through ChatMessage with image content
             self.structured_parser = ImageAwareParsingAdapter(
                 llm=llm_client,
                 prompt_settings=self.settings.prompts,
-                vision_llm=vision_llm,
+                vision_llm=None,  # Use same LLM for vision
                 use_structured_outputs=self.settings.llm.use_structured_outputs,
             )
             self.structured_cleaner = CleaningAdapter(

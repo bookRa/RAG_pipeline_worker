@@ -25,6 +25,7 @@ class LLMSettings(BaseModel):
     timeout_seconds: float = 60.0
     max_retries: int = 2
     use_structured_outputs: bool = True
+    use_responses_api: bool = True
 
 
 class EmbeddingSettings(BaseModel):
