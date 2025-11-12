@@ -49,7 +49,7 @@ class ChunkingSettings(BaseModel):
     metadata_strategy: Literal["inherit", "custom"] = "inherit"
     pixmap_dpi: int = 300
     pixmap_storage_dir: Path = Path("artifacts/pixmaps")
-    max_pixmap_bytes: int = 4_000_000
+    max_pixmap_bytes: int = 8_000_000
 
 
 class VectorStoreSettings(BaseModel):

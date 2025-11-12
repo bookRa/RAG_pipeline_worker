@@ -27,7 +27,7 @@ class ParsingService:
         include_images: bool = False,
         pixmap_dir: Path | None = None,
         pixmap_dpi: int = 300,
-        max_pixmap_bytes: int = 4_000_000,
+        max_pixmap_bytes: int = 8_000_000,
         pixmap_generator: PixmapFactory | None = None,
     ) -> None:
         self.observability = observability
@@ -77,10 +77,11 @@ class ParsingService:
                         pixmap_assets_meta[str(index)] = str(pixmap_info.path)
                     else:
                         pixmap_skipped += skipped
+                    # For image-only parsing, pass empty string for raw_text when pixmap is available
                     parsed_page, latency = self._run_structured_parser(
                         document_id=document.id,
                         page_number=index,
-                        raw_text=text,
+                        raw_text="" if pixmap_info else text,  # Empty string when using vision parsing
                         pixmap_path=str(pixmap_info.path) if pixmap_info else None,
                     )
                     if pixmap_info:
@@ -107,10 +108,11 @@ class ParsingService:
                     pixmap_assets_meta["1"] = str(pixmap_info.path)
                 else:
                     pixmap_skipped += skipped
+                # For image-only parsing, pass empty string for raw_text when pixmap is available
                 parsed_page, latency = self._run_structured_parser(
                     document_id=document.id,
                     page_number=1,
-                    raw_text=placeholder_text,
+                    raw_text="" if pixmap_info else placeholder_text,  # Empty string when using vision parsing
                     pixmap_path=str(pixmap_info.path) if pixmap_info else None,
                 )
                 if pixmap_info:

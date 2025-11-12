@@ -119,14 +119,43 @@ class ChunkingService:
 
     @staticmethod
     def _match_parsed_segments(chunk_text: str, parsed_page: dict | None) -> list[dict[str, str]]:
+        """Match chunk text against components in parsed page."""
         if not parsed_page:
             return []
         matches: list[dict[str, str]] = []
-        paragraphs = parsed_page.get("paragraphs", [])
-        for paragraph in paragraphs:
-            text = (paragraph.get("text") or "").strip()
-            if text and text in chunk_text:
-                matches.append({"id": paragraph.get("id", ""), "order": str(paragraph.get("order", ""))})
+        components = parsed_page.get("components", [])
+        
+        for component in components:
+            component_type = component.get("type", "")
+            component_id = component.get("id", "")
+            component_order = component.get("order", 0)
+            
+            # Extract text based on component type
+            text_to_match = ""
+            if component_type == "text":
+                text_to_match = (component.get("text") or "").strip()
+            elif component_type == "image":
+                # Match against recognized_text and description
+                recognized = (component.get("recognized_text") or "").strip()
+                description = (component.get("description") or "").strip()
+                text_to_match = f"{recognized} {description}".strip()
+            elif component_type == "table":
+                # Match against all row values
+                rows = component.get("rows", [])
+                row_texts = []
+                for row in rows:
+                    if isinstance(row, dict):
+                        row_texts.extend(str(v).strip() for v in row.values() if v)
+                text_to_match = " ".join(row_texts)
+            
+            # Check if component text appears in chunk
+            if text_to_match and text_to_match in chunk_text:
+                matches.append({
+                    "id": component_id,
+                    "order": str(component_order),
+                    "type": component_type,
+                })
+        
         return matches
 
     def _split_text(self, text: str, size: int, overlap: int) -> list[str]:

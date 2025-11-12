@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class BoundingBox(BaseModel):
@@ -15,49 +15,94 @@ class BoundingBox(BaseModel):
     height: float
 
 
-class ParsedParagraph(BaseModel):
-    """Paragraph element returned by the parsing LLM."""
+class ParsedTextComponent(BaseModel):
+    """Text component (paragraphs, headings, captions, labels)."""
 
+    type: Literal["text"] = "text"
     id: str = Field(default_factory=lambda: str(uuid4()))
     order: int
     text: str
+    text_type: Optional[str] = Field(
+        default=None,
+        description="Type of text element: 'paragraph', 'heading', 'caption', 'label', etc.",
+    )
     bbox: Optional[BoundingBox] = None
 
 
-class ParsedTableCell(BaseModel):
-    row: int
-    column: int
-    text: str
+class ParsedImageComponent(BaseModel):
+    """Image component with detailed visual description and recognized text."""
 
-
-class ParsedTable(BaseModel):
+    type: Literal["image"] = "image"
     id: str = Field(default_factory=lambda: str(uuid4()))
     order: int
-    caption: Optional[str] = None
-    cells: list[ParsedTableCell] = Field(default_factory=list)
+    description: str = Field(
+        description="REQUIRED - Detailed visual description of what is shown in the image. Describe what you see visually, not text captions that may appear near the image."
+    )
+    recognized_text: Optional[str] = Field(
+        default=None,
+        description="Any text visible within the image itself (OCR results from text embedded in the image)",
+    )
     bbox: Optional[BoundingBox] = None
 
 
-class ParsedFigure(BaseModel):
+class ParsedTableComponent(BaseModel):
+    """Table component with flexible row structure for merged cells."""
+
+    type: Literal["table"] = "table"
     id: str = Field(default_factory=lambda: str(uuid4()))
     order: int
-    caption: Optional[str] = None
-    description: Optional[str] = None
+    caption: Optional[str] = Field(default=None, description="Table caption or title")
+    rows: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="List of rows, each row is a dict with variable keys (handles merged cells, different column counts)",
+    )
     bbox: Optional[BoundingBox] = None
-    data_uri: Optional[str] = None  # base64 image snippets when available
+
+    @field_validator("rows")
+    @classmethod
+    def validate_rows(cls, v: list) -> list:
+        """Ensure rows are dicts with string values."""
+        for row in v:
+            if not isinstance(row, dict):
+                raise ValueError("Each row must be a dictionary")
+            for key, value in row.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    raise ValueError("Row keys and values must be strings")
+        return v
+
+
+# Discriminated union for components
+ParsedComponent = Union[ParsedTextComponent, ParsedImageComponent, ParsedTableComponent]
 
 
 class ParsedPage(BaseModel):
-    """Structured page representation returned by the parser."""
+    """Structured page representation with ordered components preserving layout."""
 
     document_id: str
     page_number: int
-    raw_text: str
-    paragraphs: list[ParsedParagraph] = Field(default_factory=list)
-    tables: list[ParsedTable] = Field(default_factory=list)
-    figures: list[ParsedFigure] = Field(default_factory=list)
+    raw_text: str = Field(description="Full markdown representation of the page content")
+    components: list[ParsedComponent] = Field(
+        default_factory=list,
+        description="Ordered list of components reflecting page layout (top to bottom, left to right)",
+    )
     pixmap_path: Optional[str] = None
     pixmap_size_bytes: Optional[int] = None
+
+    # Backward compatibility helpers (for gradual migration)
+    @property
+    def paragraphs(self) -> list[ParsedTextComponent]:
+        """Extract text components for backward compatibility."""
+        return [c for c in self.components if isinstance(c, ParsedTextComponent)]
+
+    @property
+    def tables(self) -> list[ParsedTableComponent]:
+        """Extract table components for backward compatibility."""
+        return [c for c in self.components if isinstance(c, ParsedTableComponent)]
+
+    @property
+    def figures(self) -> list[ParsedImageComponent]:
+        """Extract image components for backward compatibility."""
+        return [c for c in self.components if isinstance(c, ParsedImageComponent)]
 
 
 class CleanedSegment(BaseModel):

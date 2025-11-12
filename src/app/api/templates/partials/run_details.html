@@ -122,7 +122,72 @@
                   <pre>{{ stage.details | tojson(indent=2) }}</pre>
                 </div>
               </div>
-              {% if stage.name == "enrichment" %}
+              {% if stage.name == "parsing" %}
+                <div style="margin-top:16px;font-size:0.9rem;">
+                  <p style="color:#e0f2fe;margin-bottom:12px;">
+                    <strong>Pages parsed:</strong> {{ stage.details.page_count }}
+                  </p>
+                  {% if stage.details.pages %}
+                    <div style="display:flex;flex-direction:column;gap:16px;">
+                      {% for page in stage.details.pages %}
+                        <div style="border:1px solid rgba(148,163,184,0.2);border-radius:8px;padding:12px;background:rgba(30,41,59,0.5);">
+                          <div style="font-weight:600;color:#e0f2fe;margin-bottom:8px;">
+                            Page {{ page.page_number }}
+                            {% if page.component_count %}
+                              · {{ page.component_count }} components
+                              {% if page.component_summary %}
+                                ({{ page.component_summary.text }} text, {{ page.component_summary.image }} images, {{ page.component_summary.table }} tables)
+                              {% endif %}
+                            {% endif %}
+                          </div>
+                          {% if page.components %}
+                            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:400px;overflow-y:auto;">
+                              {% for component in page.components[:20] %}
+                                <div style="padding:8px;background:rgba(15,23,42,0.6);border-radius:4px;border-left:3px solid {% if component.type == 'text' %}#34d399{% elif component.type == 'image' %}#60a5fa{% else %}#f59e0b{% endif %};">
+                                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                    <span style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">{{ component.type }}</span>
+                                    <span style="font-size:0.75rem;color:#64748b;">order: {{ component.order }}</span>
+                                  </div>
+                                  {% if component.type == 'text' %}
+                                    <div style="color:#e0f2fe;font-size:0.85rem;white-space:pre-wrap;word-break:break-word;">
+                                      {{ component.text[:200] }}{% if component.text|length > 200 %}…{% endif %}
+                                    </div>
+                                    {% if component.text_type %}
+                                      <div style="font-size:0.75rem;color:#94a3b8;margin-top:4px;">Type: {{ component.text_type }}</div>
+                                    {% endif %}
+                                  {% elif component.type == 'image' %}
+                                    <div style="color:#cbd5e1;font-size:0.85rem;">{{ component.description[:150] }}{% if component.description|length > 150 %}…{% endif %}</div>
+                                    {% if component.recognized_text %}
+                                      <div style="color:#94a3b8;font-size:0.75rem;margin-top:4px;font-style:italic;">
+                                        Recognized text: {{ component.recognized_text[:100] }}{% if component.recognized_text|length > 100 %}…{% endif %}
+                                      </div>
+                                    {% endif %}
+                                  {% elif component.type == 'table' %}
+                                    {% if component.caption %}
+                                      <div style="color:#e0f2fe;font-weight:600;margin-bottom:4px;">{{ component.caption }}</div>
+                                    {% endif %}
+                                    <div style="color:#cbd5e1;font-size:0.85rem;">
+                                      {{ component.rows|length }} rows
+                                      {% if component.rows %}
+                                        · Columns: {{ component.rows[0].keys()|list|join(', ') }}
+                                      {% endif %}
+                                    </div>
+                                  {% endif %}
+                                </div>
+                              {% endfor %}
+                              {% if page.components|length > 20 %}
+                                <div style="color:#94a3b8;font-size:0.85rem;text-align:center;padding:8px;">
+                                  ... {{ page.components|length - 20 }} more components (see JSON output)
+                                </div>
+                              {% endif %}
+                            </div>
+                          {% endif %}
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+              {% elif stage.name == "enrichment" %}
                 <p style="font-size:0.9rem;color:#e0f2fe;">
                   Document summary:
                   {% if stage.details.document_summary %}

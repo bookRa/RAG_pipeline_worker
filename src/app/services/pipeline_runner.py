@@ -79,19 +79,40 @@ class PipelineRunner:
         stage_start = perf_counter()
         document = self.parsing.parse(document, file_bytes=file_bytes)
         pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
+        parsed_pages_meta = document.metadata.get("parsed_pages", {})
+        
+        # Build page details with components
+        page_details = []
+        for page in document.pages:
+            page_data = {
+                "page_number": page.page_number,
+                "text_preview": page.text[:500],
+            }
+            
+            # Add components if available
+            parsed_page_data = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(page.page_number)
+            if parsed_page_data:
+                components = parsed_page_data.get("components", [])
+                # Sort components by order
+                sorted_components = sorted(components, key=lambda c: c.get("order", 0))
+                page_data["components"] = sorted_components
+                page_data["component_count"] = len(sorted_components)
+                # Count by type
+                page_data["component_summary"] = {
+                    "text": len([c for c in sorted_components if c.get("type") == "text"]),
+                    "image": len([c for c in sorted_components if c.get("type") == "image"]),
+                    "table": len([c for c in sorted_components if c.get("type") == "table"]),
+                }
+            
+            page_details.append(page_data)
+        
         register_stage(
             PipelineStage(
                 name="parsing",
                 title="Parsing",
                 details={
                     "page_count": len(document.pages),
-                    "pages": [
-                        {
-                            "page_number": page.page_number,
-                            "text_preview": page.text[:500],
-                        }
-                        for page in document.pages
-                    ],
+                    "pages": page_details,
                     "pixmap_metrics": pixmap_metrics or {},
                 },
                 duration_ms=(perf_counter() - stage_start) * 1000,

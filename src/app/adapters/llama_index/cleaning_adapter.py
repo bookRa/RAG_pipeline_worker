@@ -8,7 +8,14 @@ from llama_index.core.prompts import PromptTemplate
 
 from ...application.interfaces import CleaningLLM
 from ...config import PromptSettings
-from ...parsing.schemas import CleanedPage, CleanedSegment, ParsedPage
+from ...parsing.schemas import (
+    CleanedPage,
+    CleanedSegment,
+    ParsedPage,
+    ParsedTextComponent,
+    ParsedImageComponent,
+    ParsedTableComponent,
+)
 from ...prompts.loader import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -33,11 +40,11 @@ class CleaningAdapter(CleaningLLM):
         self._prompt_template = PromptTemplate(full_prompt_text)
 
     def clean_page(self, parsed_page: ParsedPage) -> CleanedPage:
+        # Build request with components instead of separate paragraphs/tables
         request = {
             "document_id": parsed_page.document_id,
             "page_number": parsed_page.page_number,
-            "paragraphs": [para.model_dump() for para in parsed_page.paragraphs],
-            "tables": [table.model_dump() for table in parsed_page.tables],
+            "components": [self._component_to_dict(c) for c in parsed_page.components],
         }
         request_json = json.dumps(request)
         
@@ -59,15 +66,53 @@ class CleaningAdapter(CleaningLLM):
                 exc,
             )
 
-        # Fallback: return paragraphs verbatim as cleaned segments
+        # Fallback: extract text from all components and return as cleaned segments
+        segments = []
+        for component in parsed_page.components:
+            if isinstance(component, ParsedTextComponent):
+                segments.append(CleanedSegment(segment_id=component.id, text=component.text))
+            elif isinstance(component, ParsedImageComponent):
+                # Include recognized text and description for cleaning
+                text_parts = []
+                if component.recognized_text:
+                    text_parts.append(component.recognized_text)
+                if component.description:
+                    text_parts.append(component.description)
+                if text_parts:
+                    segments.append(CleanedSegment(
+                        segment_id=component.id,
+                        text=" ".join(text_parts)
+                    ))
+            elif isinstance(component, ParsedTableComponent):
+                # Extract text from all table row values
+                row_texts = []
+                for row in component.rows:
+                    row_texts.extend(str(v) for v in row.values() if v)
+                if row_texts:
+                    segments.append(CleanedSegment(
+                        segment_id=component.id,
+                        text=" | ".join(row_texts)
+                    ))
+        
         return CleanedPage(
             document_id=parsed_page.document_id,
             page_number=parsed_page.page_number,
-            segments=[
-                CleanedSegment(segment_id=para.id, text=para.text)
-                for para in parsed_page.paragraphs
-            ],
+            segments=segments,
         )
+    
+    @staticmethod
+    def _component_to_dict(component: ParsedTextComponent | ParsedImageComponent | ParsedTableComponent) -> dict:
+        """Convert component to dict for JSON serialization."""
+        base = component.model_dump()
+        # Ensure type is included for discriminated union
+        if "type" not in base:
+            if isinstance(component, ParsedTextComponent):
+                base["type"] = "text"
+            elif isinstance(component, ParsedImageComponent):
+                base["type"] = "image"
+            elif isinstance(component, ParsedTableComponent):
+                base["type"] = "table"
+        return base
     
     def _clean_with_structured_llm(
         self,

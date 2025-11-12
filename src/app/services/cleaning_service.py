@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from typing import Callable
 
 from ..application.interfaces import CleaningLLM, ObservabilityRecorder
 from ..parsing.schemas import CleanedPage, ParsedPage
 from ..domain.models import Document
+
+logger = logging.getLogger(__name__)
 
 
 class CleaningService:
@@ -61,6 +64,27 @@ class CleaningService:
                     cleaned_segments = self._run_structured_cleaner(parsed_page)
                     cleaned_page_text = "\n\n".join(segment.text for segment in cleaned_segments.segments).strip() or cleaned_page_text
                     llm_segments[str(page.page_number)] = cleaned_segments
+            
+            # Log raw vs cleaned text comparison
+            logger.info("=" * 80)
+            logger.info("CLEANING - Document: %s, Page: %s", document.id, page.page_number)
+            logger.info("=" * 80)
+            logger.info("RAW TEXT (Before Cleaning):")
+            logger.info("-" * 80)
+            logger.info("%s", raw_text[:1000] + ("..." if len(raw_text) > 1000 else ""))
+            logger.info("-" * 80)
+            logger.info("CLEANED TEXT (After Cleaning):")
+            logger.info("-" * 80)
+            logger.info("%s", cleaned_page_text[:1000] + ("..." if len(cleaned_page_text) > 1000 else ""))
+            logger.info("-" * 80)
+            logger.info("STATISTICS:")
+            logger.info("  Raw text length: %d characters, %d tokens", len(raw_text), len(raw_text.split()))
+            logger.info("  Cleaned text length: %d characters, %d tokens", len(cleaned_page_text), len(cleaned_page_text.split()))
+            logger.info("  Difference: %d characters, %d tokens", 
+                       len(cleaned_page_text) - len(raw_text),
+                       len(cleaned_page_text.split()) - len(raw_text.split()))
+            logger.info("=" * 80)
+            
             updated_page = page.model_copy(update={"cleaned_text": cleaned_page_text})
             updated_pages.append(updated_page)
             
