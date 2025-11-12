@@ -35,6 +35,11 @@
 - Ingestion pipelines can incorporate `SentenceSplitter`, `TitleExtractor`, and `OpenAIEmbedding` before writing to vector stores like Qdrant via `QdrantVectorStore`. This mirrors our pipeline stages (clean → chunk → enrich → vectorize) and lets us choose between in-memory nodes or pushing directly into the retrieval index, depending on the environment.[3]
 - Because embeddings can be computed inside the pipeline, we can decide whether our `VectorService` remains deterministic (tests) or defers to LlamaIndex embeddings (production), while still reusing the same node representation.[3]
 
+## Multi-modal parsing + pixmaps
+- The multi-modal models guide shows how to instantiate `OpenAIMultiModal`, load `image_documents` either from URLs or a local directory via `SimpleDirectoryReader`, and call `.complete(prompt=..., image_documents=...)` so GPT-4V-style models consume both text and images in a single request.[8]
+- The same guide demonstrates pairing `OpenAIMultiModal` with `SimpleMultiModalQueryEngine` and retrievers that accept `image_similarity_top_k`, which confirms we can attach the pixmap to parsing prompts while keeping downstream retrieval aware of associated image assets.[8]
+- PyMuPDF’s `Page.get_pixmap(dpi=...)` API lets us render each PDF page to a raster image at an explicit resolution; when `dpi` is provided the underlying matrix is ignored, so we can request 300 DPI consistently before handing paths to LlamaIndex.[9]
+
 ## Query/runtime surfaces for the dashboard
 - `QueryEngine` provides a lightweight adapter boundary: `query_engine.query("prompt")` returns structured responses and supports streaming via `.print_response_stream()`. We can wrap this inside a new adapter that powers `/dashboard` manual tests without leaking query-engine specifics into services.[5]
 
@@ -56,3 +61,5 @@
 5. LlamaIndex Docs – Query Engine: <https://developers.llamaindex.ai/python/framework/module_guides/deploying/query_engine/>
 6. LlamaIndex Docs – Configuring Settings: <https://developers.llamaindex.ai/python/framework/module_guides/supporting_modules/settings/>
 7. LlamaIndex Docs – Using LLMs: <https://developers.llamaindex.ai/python/framework/understanding/using_llms/>
+8. LlamaIndex Docs – Multi-modal models: <https://developers.llamaindex.ai/python/framework/module_guides/models/multi_modal/>
+9. PyMuPDF Docs – `Page.get_pixmap`: <https://pymupdf.readthedocs.io/en/latest/page.html#Page.get_pixmap>

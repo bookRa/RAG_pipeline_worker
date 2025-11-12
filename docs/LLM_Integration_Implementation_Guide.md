@@ -1,168 +1,114 @@
 # LLM Integration Implementation Guide
 
-This guide explains how large language model (LLM) calls plug into the current pipeline, what is already implemented, and how to replace the stub summary adapter with a production-ready integration without breaking the hexagonal architecture.
+This guide tracks how LLM-powered stages are wired into the pipeline, where the current implementation diverges from the LlamaIndex integration plan, and what needs to happen next (with emphasis on the 300 DPI pixmap requirement).
 
 ---
 
-## Current State
+## End-to-End Touchpoints (Today)
 
-- The `SummaryGenerator` port (defined in `src/app/application/interfaces.py`) abstracts “generate a short summary from text.”
-- `EnrichmentService` (in `src/app/services/enrichment_service.py`) injects a `SummaryGenerator` instance and calls `summarize()` whenever a chunk lacks a title or summary. It also builds a lightweight document summary from the resulting chunk summaries.
-- `LLMSummaryAdapter` (in `src/app/adapters/llm_client.py`) is the default adapter. It simply truncates text and exists as a placeholder until a real LLM client is available.
-- `AppContainer` wires the adapter into the service:
-
-```python
-self.summary_generator = LLMSummaryAdapter()
-self.enrichment_service = EnrichmentService(
-    observability=self.observability,
-    latency=stage_latency,
-    summary_generator=self.summary_generator,
-)
-```
-
-The rest of the codebase already respects the port, so swapping in a real LLM adapter requires no service changes.
+- **Parsing (`src/app/services/parsing_service.py`)** – renders 300 DPI pixmaps via `PixmapFactory` whenever `ChunkingSettings.include_images` is enabled, attaches the resulting PNG paths/byte sizes to `ParsedPage`, and feeds both text + image into the multi-modal `ImageAwareParsingAdapter`.
+- **Cleaning (`src/app/services/cleaning_service.py`)** – invokes `CleaningAdapter` to normalize parsed pages against the schema in `src/app/parsing/schemas.py`.
+- **Chunking (`src/app/services/chunking_service.py`)** – still orchestrates slicing but now prefers the LlamaIndex splitter returned by `get_llama_text_splitter()` with the `chunk_size`/`chunk_overlap` set in `config.py`.
+- **Enrichment and Summaries (`src/app/services/enrichment_service.py`)** – continue to depend on the `SummaryGenerator` port, which is fulfilled by `LlamaIndexSummaryAdapter` whenever the OpenAI LLM is configured.
+- **Vectorization (`src/app/services/vector_service.py`)** – drives embeddings through `LlamaIndexEmbeddingAdapter` and writes to the `VectorStoreAdapter` (currently the in-memory implementation).
 
 ---
 
-## Where LLM Calls Fit
+## Alignment vs. Plan
 
-```
-Document → … → ChunkingService ─┐
-                                ▼
-                      EnrichmentService ──▶ SummaryGenerator port ──▶ Adapter (LLM client)
-                                                   ▲
-                                           Infrastructure boundary
-```
+What’s done:
+- Ports for `ParsingLLM`, `CleaningLLM`, `EmbeddingGenerator`, and `VectorStoreAdapter` exist, keeping services decoupled from LlamaIndex internals.
+- `ImageAwareParsingAdapter` already loads prompts from `PromptSettings` and validates against `ParsedPage`.
+- `config.py` exposes nested LLM/embedding/chunking/vector-store/prompt models, and `bootstrap.configure_llama_index()` wires them into `llama_index.core.Settings`.
+- Contract tests plus prompt assets live under `docs/prompts/**`.
 
-- Domain + services never import LLM SDKs directly.
-- LLM adapters live under `src/app/adapters/` alongside other infrastructure code.
-- Observability events emitted by `EnrichmentService` automatically include chunk counts and document summaries, so swapping adapters immediately surfaces new behavior in the dashboard.
-
----
-
-## Implementing a Production Summary Adapter
-
-1. **Create a new adapter** under `src/app/adapters/`, e.g., `openai_summary.py`.
-2. **Implement the port**:
-
-```python
-from __future__ import annotations
-
-import os
-
-from openai import OpenAI  # third-party SDK stays inside the adapter
-
-from ..application.interfaces import SummaryGenerator
-
-
-class OpenAIChatSummaryAdapter(SummaryGenerator):
-    def __init__(self, *, api_key: str | None = None, model: str = "gpt-4o-mini") -> None:
-        self._client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
-        self._model = model
-
-    def summarize(self, text: str) -> str:
-        if not text:
-            return ""
-        response = self._client.responses.create(
-            model=self._model,
-            input=f"Summarize the following chunk in <= 2 sentences:\n\n{text[:4000]}",
-            max_output_tokens=120,
-        )
-        return response.output[0].content[0].text.strip()
-```
-
-3. **Wire it in the container** by replacing the stub:
-
-```python
-from .adapters.openai_summary import OpenAIChatSummaryAdapter
-...
-self.summary_generator = OpenAIChatSummaryAdapter()
-```
-
-4. **Expose configuration via environment variables** (model name, max tokens, temperature, etc.) so deployments can tune behavior without code changes.
-5. **Handle failures gracefully** – catch provider-specific exceptions and fall back to an empty string or a deterministic summary so the pipeline never crashes mid-run.
+What’s still missing (highest priority first):
+1. **Pixmap retention + reuse** – rendered assets accumulate under `artifacts/pixmaps/{document_id}` with no GC or checksum-based cache, so long-running nodes will eventually leak disk space.
+2. **Downstream image awareness** – cleaning, chunking, and enrichment metadata still ignore `pixmap_path`; we need to propagate figure/table references into cleaned segments and chunk metadata for traceability.
+3. **Dashboard + contract visibility** – the dashboard/test harness do not yet surface the new observability metrics (`attached/skipped counts`, `avg vision latency`), making regressions hard to detect.
+4. **Oversize fallback** – pages whose pixmaps exceed `max_pixmap_bytes` simply fall back to text-only parsing; we should add automatic downscaling or tiling so visually dense PDFs still benefit from the multi-modal path.
 
 ---
 
-## Testing Strategy
+## Immediate Next Steps
 
-| Test Layer | What to Cover | Notes |
+1. **Add pixmap retention + reuse.**
+   - Track the PDF checksum from ingestion and reuse existing pixmaps when the checksum matches to avoid needless rendering.
+   - Provide a cleanup command (or background job) that trims stale pixmap directories after N days or once the directory exceeds a size budget.
+2. **Make cleaning/chunking image-aware.**
+   - Extend `ParsedPage` ➝ `CleanedPage` transformations to carry `pixmap_path`/`figure` references so chunk metadata can cite the original asset.
+   - Update chunk metadata (and eventual vector payloads) with the associated `pixmap_path` so QA tooling can open the exact image that informed a chunk.
+3. **Expose observability + dashboard views.**
+   - Feed `ParsingService`’s new metrics (`attached`, `skipped`, `total_size_bytes`, `avg_latency_ms`) into dashboard cards/logs and ensure contract tests assert their presence.
+   - Emit token + image credit stats from the callback manager so spend can be tracked per document.
+4. **Handle oversize pixmaps gracefully.**
+   - Downscale or tile PNGs that exceed `max_pixmap_bytes` instead of skipping them entirely, and add tests to ensure the fallback logic is deterministic.
+5. **Testing.**
+   - Complement the new unit tests with an end-to-end opt-in test that renders a PDF, confirms pixmap reuse, and asserts the multi-modal adapter is invoked exactly once per page.
+
+---
+
+## Implementation Notes
+
+### Parsing & Cleaning Flow
+- `ParsingService.parse()` now renders pixmaps (via `PixmapFactory`) before `_run_structured_parser` executes, records per-page latency, and stores `pixmap_path` + `pixmap_size_bytes` inside `document.metadata["parsed_pages"]` and `["pixmap_assets"]`.
+- `ImageAwareParsingAdapter` takes both a text `llm` and an optional `vision_llm` (`OpenAIMultiModal`); when a pixmap path is provided it sends the PNG via `image_documents` while still requesting JSON-structured output.
+- `CleaningService` continues to reconstruct `ParsedPage` objects from metadata, so the schema additions (`pixmap_path`, `pixmap_size_bytes`) are already available for future cleaning logic (e.g., highlighting when an OCR fix references an image).
+
+### Summaries & Embeddings
+- `EnrichmentService` only depends on `SummaryGenerator`; `LlamaIndexSummaryAdapter` can continue to use text-only prompts.
+- `VectorService` wires `LlamaIndexEmbeddingAdapter` and persists vectors through `VectorStoreAdapter`. No change is required for pixmaps, but we should confirm chunk metadata carries the associated `parsed_paragraph_id` so downstream retrieval can point back to the originating image when needed.
+
+### Configuration & Prompts
+- `src/app/config.py` now exposes `ChunkingSettings.include_images`, `pixmap_dpi`, `pixmap_storage_dir`, and `max_pixmap_bytes`, plus the usual `PromptSettings`. `AppContainer` reads these knobs (with env overrides such as `PIXMAP_STORAGE_DIR`) before instantiating `PixmapFactory`.
+- `configure_llama_index()` instantiates both the textual `llama_index.llms.openai.OpenAI` client and an `OpenAIMultiModal` instance using the same `LLMSettings` values (default `gpt-4o-mini`), so adapters can pick the right transport without re-reading env vars.
+- Prompts still live under `docs/prompts/parsing/` and `docs/prompts/cleaning/`; they should now mention that an image attachment is available whenever `pixmap_path` is provided, so prompt authors know how to reference visual context.
+
+### File Handling & Storage Hygiene
+- Keep pixmaps outside of the FastAPI process memory. Persist them under `artifacts/pixmaps/` with deterministic names and clean them up when a pipeline run completes or expires.
+- Include the pixmap path (or a hashed reference) inside `document.metadata["parsed_pages"][page]["assets"]` so QA tooling can display the exact image that fed the LLM.
+
+---
+
+## Testing Strategy (Expanded)
+
+| Layer | What to Cover | Notes |
 | --- | --- | --- |
-| Adapter unit tests | Prompt assembly, error handling, token limits, tracing metadata | Use VCR/cassettes or dependency injection to avoid real API calls in CI. |
-| Enrichment service tests | Verify the service calls the injected adapter exactly once per chunk and copies returned summaries into chunk metadata + document summary | `tests/test_services.py` already covers the stub; extend it with adapter fakes to assert behavior. |
-| End-to-end tests | Optional smoke tests that mock the adapter to return deterministic text while exercising FastAPI routes/dashboard | Keep them offline; rely on mocks or fixtures. |
-
-Example adapter test skeleton:
-
-```python
-class StubClient:
-    def __init__(self) -> None:
-        self.calls: list[str] = []
-
-    def responses(self, text: str) -> str:
-        self.calls.append(text)
-        return "summary"
-
-
-def test_adapter_returns_summary():
-    adapter = MySummaryAdapter(client=StubClient())
-    assert adapter.summarize("hello world") == "summary"
-```
+| Pixmap helper | Page-to-PNG conversion at 300 DPI, disk layout, error handling | Use a single-page fixture PDF to assert the helper emits deterministic filenames and honors `include_images`. |
+| Parsing adapter | Prompt assembly, multi-modal payload construction, fallback to text-only | Mock the LlamaIndex client (`OpenAIMultiModal`) so CI stays offline. Assert that `image_documents` is populated when `pixmap_path` is provided. |
+| Parsing service | Ensures pixmap generation + `parsed_pages` metadata | Inject fake parsers and structured parser to assert metadata wiring without hitting the filesystem. |
+| Cleaning/adapters | Existing normalization behavior plus any new `image_reference` fields | Continue using deterministic fakes. |
+| Summary/embedding/vector tests | No change other than ensuring pixmap metadata does not break serialization | Existing tests in `tests/test_services.py` already mock adapters; extend fixtures if new metadata appears. |
+| End-to-end smoke tests | Optional dev-only test hitting real LLMs (guarded by `RUN_CONTRACT_TESTS`) | Useful once multi-modal calls are plumbed through. |
 
 ---
 
 ## Observability, Cost, and Safeguards
 
-- `EnrichmentService` already emits an `enrichment` event with chunk counts. Extend the `details` payload if the LLM adapter provides confidence scores, token usage, or safety flags.
-- Consider caching chunk summaries (e.g., via hashing `chunk.cleaned_text`) before calling an LLM to avoid duplicate spend when rerunning the same document.
-- Timeouts and retries belong inside the adapter. Keep them configurable so hosting environments can tune them.
-- Sensitive data: if chunks may contain confidential content, ensure the chosen provider and deployment meet compliance requirements. Since adapters live under `src/app/adapters/`, you can create alternate implementations for air-gapped or on-prem models while reusing the same port.
-
----
-
-## Future Extensions
-
-Once the summary use case is stable, the same pattern can power richer LLM integrations:
-
-- **Chunk metadata enrichment** – Generate keywords, questions, or structured metadata by extending `SummaryGenerator` or adding new ports consumed by `EnrichmentService`.
-- **LLM-backed parsing** – Swap or augment `DocumentParser` implementations with LLM-based page interpreters (still respecting the parser port). Keep PDF-to-image conversion and LLM calling inside adapters, never in services.
-- **Feedback loops** – Store LLM response metadata (e.g., latency, tokens, finish reasons) inside `chunk.metadata.extra["llm"]` so downstream diagnostics and dashboards can visualize quality metrics.
-
-These enhancements should continue to follow the same architectural rule: define or reuse ports in `application/interfaces.py`, keep adapters in `src/app/adapters/`, and inject them via `container.py`.
+- `ParsingService` now emits per-document metrics (`generated`, `attached`, `skipped`, `total_size_bytes`, `avg_latency_ms`) so logs clearly show when the multi-modal path was exercised. Surface these fields in dashboards/tests next.
+- Multi-modal OpenAI calls still flow through `CallbackManager(TokenCountingHandler())`; plumb those token/image counts into the same parsing event so cost regressions are visible.
+- Pixmap rendering currently produces a directory per document; add checksum-based caches and retention policies so repeated uploads don’t blow up disk usage.
+- Oversize pixmaps (> `max_pixmap_bytes`) log a warning and fall back to text. Replace this with automatic downscaling/retries so we do not silently lose visual context on large schematics.
 
 ---
 
 ## Checklist
 
-- [ ] Adapter implements `SummaryGenerator` and handles empty input, timeouts, and provider errors.
-- [ ] Secrets (API keys) are loaded from environment variables or secret managers, not hard-coded.
-- [ ] `container.py` wires the adapter and exposes configuration knobs.
-- [ ] Unit tests cover adapter logic without making live API calls.
-- [ ] Service tests confirm `EnrichmentService` copies adapter output into chunk metadata + document summary.
-- [ ] Documentation (this guide + `docs/ARCHITECTURE.md` if telemetry changes) updated with the new behavior.
-- [ ] `tests/test_architecture.py` still passes (no LLM SDK imports inside services/domain).
-
----
-
-## Configuration Hooks
-
-- Global application configuration now lives in `src/app/config.py`. Nested models (`LLMSettings`, `EmbeddingSettings`, `ChunkingSettings`, `VectorStoreSettings`, and `PromptSettings`) can be overridden via `.env` entries such as `LLM__PROVIDER=openai` or `CHUNKING__CHUNK_SIZE=768`.
-- On startup the adapters layer invokes `configure_llama_index(settings)` (`src/app/adapters/llama_index/bootstrap.py`) which wires these values into `llama_index.core.Settings` exactly once per process. This keeps framework imports out of services while still allowing runtime tuning of models, prompts, and splitter strategies.
-- Provider-specific packages (e.g., `llama-index-llms-openai`, `llama-index-embeddings-openai`) must be installed before enabling the bootstrap; otherwise an informative `LlamaIndexBootstrapError` is raised during application startup.
+- [x] 300 DPI pixmap helper emits PNGs under `artifacts/pixmaps/{document}/{page}.png`.
+- [x] `ParsingService` stores pixmap metadata and passes it to `ParsingLLM.parse_page`.
+- [x] `ImageAwareParsingAdapter` builds multi-modal payloads (with graceful fallback to current text-only mode).
+- [x] `ChunkingSettings.include_images` + new configuration knobs govern the feature flag.
+- [x] Tests cover pixmap creation, adapter payloads, and metadata propagation (unit scope).
+- [x] Observability events surface pixmap usage and model details.
+- [ ] Contract tests remain opt-in and no CI path performs real network calls.
 
 ---
 
 ## References
 
-- `src/app/application/interfaces.py` – `SummaryGenerator` port definition
-- `src/app/adapters/llm_client.py` – Current stub (`LLMSummaryAdapter`)
-- `src/app/services/enrichment_service.py` – Service that invokes the port
-- `src/app/container.py` – Wiring and configuration
-- `tests/test_services.py` – Enrichment-oriented tests
-- `docs/ARCHITECTURE.md` – Overall dependency flow
-
-## API Keys & Environment Setup
-
-- Local development: copy `.env.example` to `.env`, then provide your provider-specific secrets (e.g., `OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`). `pydantic-settings` automatically loads these values at startup.
-- Managed environments: define the same variables via your PaaS/infra secrets store. No code changes are required to switch providers/models—just update the environment variables and restart the service.
-- If you receive `403 model_not_found` errors, verify that your account has access to the requested model or update `LLM__MODEL` to one that is available to your project.
+- `src/app/services/parsing_service.py`
+- `src/app/adapters/llama_index/parsing_adapter.py`
+- `src/app/parsing/schemas.py`
+- `src/app/config.py`
+- `docs/prompts/parsing/*`
+- `docs/LlamaIndex_Integration_Plan.md`

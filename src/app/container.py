@@ -16,6 +16,7 @@ from .adapters.llama_index.bootstrap import (
     get_llama_llm,
     get_llama_text_splitter,
     get_llama_embedding_model,
+    get_llama_multi_modal_llm,
 )
 from .adapters.llama_index.cleaning_adapter import CleaningAdapter
 from .adapters.llama_index.parsing_adapter import ImageAwareParsingAdapter
@@ -53,6 +54,9 @@ class AppContainer:
         self.ingestion_repository = FileSystemIngestionRepository(ingestion_storage_dir)
         documents_dir = Path(os.getenv("DOCUMENT_STORAGE_DIR", base_dir / "artifacts" / "documents")).resolve()
         self.document_repository = FileSystemDocumentRepository(documents_dir)
+        pixmap_dir = Path(
+            os.getenv("PIXMAP_STORAGE_DIR", self.settings.chunking.pixmap_storage_dir)
+        ).resolve()
         self.document_parsers = [
             PdfParserAdapter(),
             DocxParserAdapter(),
@@ -76,9 +80,14 @@ class AppContainer:
             llm_client = get_llama_llm()
             embed_model = get_llama_embedding_model()
             self.text_splitter = get_llama_text_splitter()
+            try:
+                vision_llm = get_llama_multi_modal_llm()
+            except LlamaIndexBootstrapError:
+                vision_llm = None
             self.structured_parser = ImageAwareParsingAdapter(
                 llm=llm_client,
                 prompt_settings=self.settings.prompts,
+                vision_llm=vision_llm,
                 use_structured_outputs=self.settings.llm.use_structured_outputs,
             )
             self.structured_cleaner = CleaningAdapter(
@@ -100,6 +109,10 @@ class AppContainer:
             latency=stage_latency,
             parsers=self.document_parsers,
             structured_parser=self.structured_parser,
+            include_images=self.settings.chunking.include_images,
+            pixmap_dir=pixmap_dir,
+            pixmap_dpi=self.settings.chunking.pixmap_dpi,
+            max_pixmap_bytes=self.settings.chunking.max_pixmap_bytes,
         )
         self.cleaning_service = CleaningService(
             observability=self.observability,

@@ -32,7 +32,7 @@ def test_openai_completion_contract():
         "Return {\"foo\": string, \"bar\": integer}. Example: {\"foo\": \"hello\", \"bar\": 3}."
     )
     text = extract_response_text(response)
-    print("Contract raw response:", text)
+    print("\n--- Contract raw response ---\n", text, "\n-----------------------------\n", flush=True)
     data = json.loads(text)
     assert isinstance(data["foo"], str)
     assert isinstance(data["bar"], int)

@@ -4,6 +4,8 @@ import json
 import logging
 from typing import Any
 
+from llama_index.core.schema import ImageDocument
+
 from ...application.interfaces import ParsingLLM
 from ...config import PromptSettings
 from ...parsing.schemas import ParsedPage, ParsedParagraph
@@ -20,9 +22,11 @@ class ImageAwareParsingAdapter(ParsingLLM):
         self,
         llm: Any,
         prompt_settings: PromptSettings,
+        vision_llm: Any | None = None,
         use_structured_outputs: bool = True,
     ) -> None:
         self._llm = llm
+        self._vision_llm = vision_llm
         self._system_prompt = load_prompt(prompt_settings.parsing_system_prompt_path)
         self._user_prompt_template = load_prompt(prompt_settings.parsing_user_prompt_path)
         self._use_structured_outputs = use_structured_outputs
@@ -45,10 +49,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         prompt = f"{self._system_prompt}\n\n{self._user_prompt_template}\n\n{json.dumps(payload)}"
         completion_text = ""
         try:
-            completion = self._llm.complete(
-                prompt,
-                **self._structured_kwargs("parsed_page", self._schema),
-            )
+            completion = self._complete(prompt, pixmap_path)
             completion_text = extract_response_text(completion)
             data = json.loads(completion_text)
             return ParsedPage.model_validate(data)
@@ -81,3 +82,18 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 },
             }
         }
+
+    def _complete(self, prompt: str, pixmap_path: str | None) -> Any:
+        kwargs = self._structured_kwargs("parsed_page", self._schema)
+        if pixmap_path and self._vision_llm:
+            image_doc = ImageDocument(image_path=pixmap_path)
+            return self._vision_llm.complete(
+                prompt,
+                image_documents=[image_doc],
+                **kwargs,
+            )
+        if pixmap_path and not self._vision_llm:
+            logger.warning(
+                "Pixmap path provided but multi-modal LLM is unavailable. Falling back to text-only parsing."
+            )
+        return self._llm.complete(prompt, **kwargs)

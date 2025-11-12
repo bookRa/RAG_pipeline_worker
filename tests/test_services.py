@@ -15,6 +15,8 @@ from src.app.services.parsing_service import ParsingService
 from src.app.services.ingestion_service import IngestionService
 from src.app.services.pipeline_runner import PipelineRunner
 from src.app.services.vector_service import VectorService
+from src.app.parsing.schemas import ParsedPage
+from src.app.parsing.pixmap_factory import PixmapInfo
 
 
 def build_document() -> Document:
@@ -93,6 +95,53 @@ def test_parsing_reads_from_stored_path(tmp_path):
 
     result = parsing.parse(document)
     assert result.pages[0].text == "Stored bytes"
+
+
+def test_parsing_attaches_pixmap_metadata_when_enabled(tmp_path):
+    class StubParser:
+        def supports_type(self, file_type: str) -> bool:
+            return True
+
+        def parse(self, file_bytes: bytes, filename: str) -> list[str]:
+            return ["Parsed content"]
+
+    class StructuredStub:
+        def __init__(self) -> None:
+            self.calls: list[str | None] = []
+
+        def parse_page(self, *, document_id: str, page_number: int, raw_text: str, pixmap_path: str | None = None):
+            self.calls.append(pixmap_path)
+            return ParsedPage(document_id=document_id, page_number=page_number, raw_text=raw_text)
+
+    class PixmapStubGenerator:
+        def __init__(self, path: Path) -> None:
+            self._info = PixmapInfo(page_number=1, path=path, size_bytes=path.stat().st_size)
+
+        def generate(self, document_id: str, pdf_bytes: bytes):
+            return {1: self._info}
+
+    observability = build_null_observability()
+    structured_parser = StructuredStub()
+    pixmap_path = tmp_path / "page_0001.png"
+    pixmap_path.write_bytes(b"img-bytes")
+    pixmap_generator = PixmapStubGenerator(pixmap_path)
+
+    parsing = ParsingService(
+        observability=observability,
+        parsers=[StubParser()],
+        structured_parser=structured_parser,
+        include_images=True,
+        pixmap_generator=pixmap_generator,
+        max_pixmap_bytes=10_000,
+    )
+    document = build_document()
+
+    result = parsing.parse(document, file_bytes=b"fake-pdf")
+    assert structured_parser.calls == [str(pixmap_path)]
+    parsed_meta = result.metadata["parsed_pages"]["1"]
+    assert parsed_meta["pixmap_path"] == str(pixmap_path)
+    assert parsed_meta["pixmap_size_bytes"] == pixmap_path.stat().st_size
+    assert result.metadata["pixmap_assets"]["1"] == str(pixmap_path)
 
 
 def test_parsing_with_real_pdf_parser():

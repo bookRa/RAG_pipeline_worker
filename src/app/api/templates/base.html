@@ -521,6 +521,10 @@
 
     const DashboardRuns = {
       watchers: new Map(),
+      stopAll() {
+        this.watchers.forEach(interval => clearInterval(interval));
+        this.watchers.clear();
+      },
       start(container) {
         if (!container) {
           return;
@@ -620,6 +624,7 @@
           if (!response.ok) {
             throw new Error('Upload failed');
           }
+          DashboardRuns.stopAll();
           output.innerHTML = html;
           DashboardStageManager.init(output);
           DashboardRuns.start(output);

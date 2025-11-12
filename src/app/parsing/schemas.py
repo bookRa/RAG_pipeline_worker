@@ -56,6 +56,8 @@ class ParsedPage(BaseModel):
     paragraphs: list[ParsedParagraph] = Field(default_factory=list)
     tables: list[ParsedTable] = Field(default_factory=list)
     figures: list[ParsedFigure] = Field(default_factory=list)
+    pixmap_path: Optional[str] = None
+    pixmap_size_bytes: Optional[int] = None
 
 
 class CleanedSegment(BaseModel):

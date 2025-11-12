@@ -13,3 +13,5 @@ pdfplumber
 llama-index-core
 llama-index-llms-openai
 llama-index-embeddings-openai
+pymupdf
+llama-index-multi-modal-llms-openai

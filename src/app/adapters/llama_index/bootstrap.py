@@ -15,6 +15,7 @@ from typing import Any
 from ...config import Settings
 
 _last_cache_key: tuple[str, ...] | None = None
+_multi_modal_llm: Any | None = None
 
 try:  # Optional dependency – only needed when LlamaIndex is enabled.
     from llama_index.core import Settings as LlamaCoreSettings
@@ -56,7 +57,9 @@ def configure_llama_index(settings: Settings) -> None:
 
 
 def _configure_llama_index(settings: Settings) -> None:
-    llm_client = _build_llm(settings)
+    api_key, api_base = _resolve_openai_credentials(settings)
+    llm_client = _build_llm(settings, api_key=api_key, api_base=api_base)
+    multi_modal_llm = _build_multi_modal_llm(settings, api_key=api_key, api_base=api_base)
     embed_model = _build_embedding(settings)
     text_splitter = _build_text_splitter(settings)
     callback_manager = _build_callback_manager()
@@ -67,9 +70,20 @@ def _configure_llama_index(settings: Settings) -> None:
     LlamaCoreSettings.chunk_size = settings.chunking.chunk_size
     LlamaCoreSettings.chunk_overlap = settings.chunking.chunk_overlap
     LlamaCoreSettings.callback_manager = callback_manager
+    global _multi_modal_llm  # noqa: PLW0603
+    _multi_modal_llm = multi_modal_llm
 
 
-def _build_llm(settings: Settings) -> Any:
+def _resolve_openai_credentials(settings: Settings) -> tuple[str, str | None]:
+    api_key = settings.llm.api_key or os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise LlamaIndexBootstrapError(
+            "OPENAI_API_KEY (or LLM__API_KEY) is required when using the OpenAI provider."
+        )
+    return api_key, settings.llm.api_base
+
+
+def _build_llm(settings: Settings, *, api_key: str | None = None, api_base: str | None = None) -> Any:
     provider = settings.llm.provider
     if provider == "openai":
         try:
@@ -80,16 +94,10 @@ def _build_llm(settings: Settings) -> Any:
                 "`llama-index-llms-openai` is not installed."
             ) from exc
 
-        api_key = settings.llm.api_key or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise LlamaIndexBootstrapError(
-                "OPENAI_API_KEY (or LLM__API_KEY) is required when using the OpenAI provider."
-            )
-
         return OpenAI(
             model=settings.llm.model,
             temperature=settings.llm.temperature,
-            api_base=settings.llm.api_base,
+            api_base=api_base,
             api_key=api_key,
             timeout=settings.llm.timeout_seconds,
             max_retries=settings.llm.max_retries,
@@ -98,6 +106,35 @@ def _build_llm(settings: Settings) -> Any:
     raise LlamaIndexBootstrapError(
         f"Unsupported LLM provider '{provider}'. Implement an adapter before enabling it."
     )
+
+
+def _build_multi_modal_llm(
+    settings: Settings,
+    *,
+    api_key: str | None = None,
+    api_base: str | None = None,
+) -> Any | None:
+    provider = settings.llm.provider
+    if provider == "openai":
+        try:
+            from llama_index.multi_modal_llms.openai import OpenAIMultiModal
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise LlamaIndexBootstrapError(
+                "`settings.llm.provider` is 'openai' but multi-modal support "
+                "is unavailable. Install `llama-index-multi-modal-llms-openai`."
+            ) from exc
+
+        return OpenAIMultiModal(
+            model=settings.llm.model,
+            temperature=settings.llm.temperature,
+            max_new_tokens=settings.llm.max_output_tokens,
+            timeout=settings.llm.timeout_seconds,
+            max_retries=settings.llm.max_retries,
+            image_detail="high",
+            api_key=api_key,
+            api_base=api_base,
+        )
+    return None
 
 
 def _build_embedding(settings: Settings) -> Any:
@@ -167,3 +204,11 @@ def get_llama_text_splitter() -> Any:
     if LlamaCoreSettings is None or getattr(LlamaCoreSettings, "text_splitter", None) is None:
         raise LlamaIndexBootstrapError("LlamaIndex text splitter has not been configured.")
     return LlamaCoreSettings.text_splitter
+
+
+def get_llama_multi_modal_llm() -> Any:
+    """Return the configured multi-modal LLM instance."""
+
+    if _multi_modal_llm is None:
+        raise LlamaIndexBootstrapError("Multi-modal LLM has not been configured.")
+    return _multi_modal_llm
