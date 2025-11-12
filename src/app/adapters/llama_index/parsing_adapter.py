@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 from pathlib import Path
 
@@ -27,10 +28,12 @@ class ImageAwareParsingAdapter(ParsingLLM):
         prompt_settings: PromptSettings,
         vision_llm: Any | None = None,
         use_structured_outputs: bool = True,
+        use_streaming: bool = True,
     ) -> None:
         self._llm = llm
         self._vision_llm = vision_llm
         self._use_structured_outputs = use_structured_outputs
+        self._use_streaming = use_streaming
         # Build system prompt from loaded prompts (combine system + user prompts)
         system_prompt = load_prompt(prompt_settings.parsing_system_prompt_path)
         user_prompt_template = load_prompt(prompt_settings.parsing_user_prompt_path)
@@ -137,27 +140,12 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 ),
             ]
             
-            # Call chat() directly on the base LLM
-            response = self._llm.chat(messages)
-            
-            # Extract JSON from response and parse
-            if hasattr(response, "message") and hasattr(response.message, "content"):
-                content = response.message.content
-                # Handle both string and list content
-                if isinstance(content, list):
-                    # Extract text from content list
-                    text_parts = [
-                        item.get("text", "") 
-                        for item in content 
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    ]
-                    content = "".join(text_parts)
-                elif not isinstance(content, str):
-                    content = str(content)
-            elif hasattr(response, "text"):
-                content = response.text
+            # Call chat with streaming if enabled
+            if self._use_streaming:
+                content = self._stream_chat_response(messages, document_id, page_number)
             else:
-                content = str(response)
+                response = self._llm.chat(messages)
+                content = self._extract_content_from_response(response)
             
             if content:
                 # Try to extract JSON from markdown code fences if present
@@ -264,6 +252,136 @@ class ImageAwareParsingAdapter(ParsingLLM):
             )
         return None
 
+    def _stream_chat_response(
+        self,
+        messages: list[ChatMessage],
+        document_id: str,
+        page_number: int,
+    ) -> str:
+        """Stream chat response and log progress in real-time."""
+        logger.info(
+            "🔄 Starting streaming response for doc=%s page=%s...",
+            document_id,
+            page_number,
+        )
+        
+        start_time = time.time()
+        first_token_time = None
+        accumulated_content = ""
+        chunk_count = 0
+        
+        # Time-based logging configuration
+        log_interval_seconds = 5.0  # Log every 5 seconds
+        last_log_time = start_time
+        content_since_last_log = ""
+        
+        try:
+            # Call stream_chat to get streaming response
+            stream_response = self._llm.stream_chat(messages)
+            
+            for chunk in stream_response:
+                chunk_count += 1
+                current_time = time.time()
+                
+                # Record time to first token
+                if first_token_time is None:
+                    first_token_time = current_time
+                    elapsed = first_token_time - start_time
+                    logger.info(
+                        "✓ First token received for doc=%s page=%s (%.1fs)",
+                        document_id,
+                        page_number,
+                        elapsed,
+                    )
+                
+                # Extract delta content from chunk
+                delta = ""
+                if hasattr(chunk, "delta") and chunk.delta:
+                    delta = str(chunk.delta)
+                elif hasattr(chunk, "message") and hasattr(chunk.message, "content"):
+                    # Some implementations return full message
+                    new_content = str(chunk.message.content)
+                    if new_content.startswith(accumulated_content):
+                        delta = new_content[len(accumulated_content):]
+                    else:
+                        delta = new_content
+                
+                accumulated_content += delta
+                content_since_last_log += delta
+                
+                # Log accumulated content every N seconds
+                if current_time - last_log_time >= log_interval_seconds:
+                    if content_since_last_log:
+                        # Log the chunk in a readable format (full content, no truncation)
+                        logger.info(
+                            "📝 [doc=%s pg=%s | %.1fs]\n%s",
+                            document_id,
+                            page_number,
+                            current_time - start_time,
+                            content_since_last_log,
+                        )
+                        logger.info(
+                            "📊 Progress: %d chunks, %d chars total",
+                            chunk_count,
+                            len(accumulated_content),
+                        )
+                    content_since_last_log = ""
+                    last_log_time = current_time
+            
+            # Log any remaining content
+            if content_since_last_log:
+                logger.info(
+                    "📝 [doc=%s pg=%s | final]\n%s",
+                    document_id,
+                    page_number,
+                    content_since_last_log,
+                )
+            
+            # Final summary
+            total_time = time.time() - start_time
+            logger.info(
+                "✅ Streaming complete for doc=%s page=%s: %d chunks, %d chars in %.1fs (TTFT: %.1fs)",
+                document_id,
+                page_number,
+                chunk_count,
+                len(accumulated_content),
+                total_time,
+                (first_token_time - start_time) if first_token_time else 0,
+            )
+            
+            return accumulated_content
+            
+        except Exception as exc:
+            logger.error(
+                "❌ Streaming failed for doc=%s page=%s after %d chunks: %s",
+                document_id,
+                page_number,
+                chunk_count,
+                exc,
+            )
+            raise
+
+    def _extract_content_from_response(self, response: Any) -> str:
+        """Extract text content from a non-streaming response."""
+        if hasattr(response, "message") and hasattr(response.message, "content"):
+            content = response.message.content
+            # Handle both string and list content
+            if isinstance(content, list):
+                # Extract text from content list
+                text_parts = [
+                    item.get("text", "") 
+                    for item in content 
+                    if isinstance(item, dict) and item.get("type") == "text"
+                ]
+                return "".join(text_parts)
+            elif not isinstance(content, str):
+                return str(content)
+            return content
+        elif hasattr(response, "text"):
+            return response.text
+        else:
+            return str(response)
+
     def _log_trace(
         self,
         document_id: str,
@@ -281,36 +399,31 @@ class ImageAwareParsingAdapter(ParsingLLM):
         logger.info("-" * 80)
         logger.info("RAW TEXT (Markdown):")
         logger.info("-" * 80)
-        logger.info("%s", parsed_page.raw_text[:1000] + ("..." if len(parsed_page.raw_text) > 1000 else ""))
+        logger.info("%s", parsed_page.raw_text)
         logger.info("-" * 80)
         logger.info("COMPONENTS: %d (ordered by layout)", len(parsed_page.components))
         
-        # Show components in order
-        for i, component in enumerate(parsed_page.components[:10], 1):  # Show first 10
+        # Show all components (no truncation)
+        for i, component in enumerate(parsed_page.components, 1):
             if isinstance(component, ParsedTextComponent):
                 text_type_str = f" ({component.text_type})" if component.text_type else ""
-                logger.info("  [%d] TEXT%s - order=%d: %s", 
+                logger.info("  [%d] TEXT%s - order=%d:\n%s", 
                           i, text_type_str, component.order,
-                          component.text[:150] + ("..." if len(component.text) > 150 else ""))
+                          component.text)
             elif isinstance(component, ParsedImageComponent):
                 logger.info("  [%d] IMAGE - order=%d", i, component.order)
-                logger.info("      description: %s", component.description[:150] + ("..." if len(component.description) > 150 else ""))
+                logger.info("      description: %s", component.description)
                 if component.recognized_text:
-                    logger.info("      recognized_text: %s", component.recognized_text[:100] + ("..." if len(component.recognized_text) > 100 else ""))
+                    logger.info("      recognized_text: %s", component.recognized_text)
             elif isinstance(component, ParsedTableComponent):
                 caption_str = f" - {component.caption}" if component.caption else ""
                 logger.info("  [%d] TABLE - order=%d%s: %d rows", 
                           i, component.order, caption_str, len(component.rows))
                 if component.rows:
-                    # Show first row keys as column preview
+                    # Show all column names
                     first_row = component.rows[0]
-                    cols = ", ".join(list(first_row.keys())[:5])
-                    if len(first_row) > 5:
-                        cols += f" ... ({len(first_row)} total columns)"
+                    cols = ", ".join(list(first_row.keys()))
                     logger.info("      columns: %s", cols)
-        
-        if len(parsed_page.components) > 10:
-            logger.info("  ... (%d more components)", len(parsed_page.components) - 10)
         
         # Summary by type
         text_count = len([c for c in parsed_page.components if isinstance(c, ParsedTextComponent)])

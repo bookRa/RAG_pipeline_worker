@@ -87,6 +87,7 @@ class AppContainer:
                 prompt_settings=self.settings.prompts,
                 vision_llm=None,  # Use same LLM for vision
                 use_structured_outputs=self.settings.llm.use_structured_outputs,
+                use_streaming=self.settings.llm.use_streaming,
             )
             self.structured_cleaner = CleaningAdapter(
                 llm=llm_client,

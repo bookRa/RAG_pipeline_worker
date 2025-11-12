@@ -26,6 +26,7 @@ class LLMSettings(BaseModel):
     max_retries: int = 2
     use_structured_outputs: bool = True
     use_responses_api: bool = True
+    use_streaming: bool = True
 
 
 class EmbeddingSettings(BaseModel):
