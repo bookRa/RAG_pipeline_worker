@@ -78,6 +78,7 @@ class PipelineRunner:
 
         stage_start = perf_counter()
         document = self.parsing.parse(document, file_bytes=file_bytes)
+        pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
         register_stage(
             PipelineStage(
                 name="parsing",
@@ -91,6 +92,7 @@ class PipelineRunner:
                         }
                         for page in document.pages
                     ],
+                    "pixmap_metrics": pixmap_metrics or {},
                 },
                 duration_ms=(perf_counter() - stage_start) * 1000,
             )

@@ -12,7 +12,7 @@ from ...parsing.schemas import ParsedPage, ParsedParagraph
 from ...prompts.loader import load_prompt
 from .utils import extract_response_text
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rag_pipeline.llm")
 
 
 class ImageAwareParsingAdapter(ParsingLLM):
@@ -51,6 +51,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         try:
             completion = self._complete(prompt, pixmap_path)
             completion_text = extract_response_text(completion)
+            self._log_trace(document_id, page_number, pixmap_path, prompt, completion_text)
             data = json.loads(completion_text)
             return ParsedPage.model_validate(data)
         except Exception as exc:  # pragma: no cover - defensive fallback
@@ -97,3 +98,20 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 "Pixmap path provided but multi-modal LLM is unavailable. Falling back to text-only parsing."
             )
         return self._llm.complete(prompt, **kwargs)
+
+    def _log_trace(
+        self,
+        document_id: str,
+        page_number: int,
+        pixmap_path: str | None,
+        prompt: str,
+        response: str,
+    ) -> None:
+        payload = {
+            "document_id": document_id,
+            "page_number": page_number,
+            "pixmap_path": pixmap_path,
+            "prompt": prompt,
+            "response": response,
+        }
+        logger.info("parsing_llm_trace %s", json.dumps(payload, ensure_ascii=False))

@@ -49,7 +49,7 @@ class ChunkingService:
             cleaned_text = page.cleaned_text
             parsed_page = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(str(page.page_number))
 
-            segments = self._split_text(raw_text, size)
+            segments = self._split_text(raw_text, size, normalized_overlap)
             cursor = 0
             chunk_index = 0
 
@@ -61,6 +61,8 @@ class ChunkingService:
                 chunk_id = str(uuid4())
                 chunk_raw_text = raw_text[start:end]
                 chunk_cleaned_text = cleaned_text[start:end] if cleaned_text else None
+                if chunk_cleaned_text is not None:
+                    chunk_cleaned_text = chunk_cleaned_text.rstrip()
 
                 # Attach cleaning metadata from document metadata if available
                 # Cleaning service stores metadata keyed by page_number
@@ -99,7 +101,10 @@ class ChunkingService:
 
                 chunk_index += 1
                 if not self.text_splitter and end < len(raw_text):
-                    cursor = max(end - normalized_overlap, 0)
+                    next_cursor = max(end - normalized_overlap, 0)
+                    if next_cursor <= start:
+                        next_cursor = start + 1
+                    cursor = next_cursor
 
         updated_document = updated_document.model_copy(update={"status": "chunked"})
         self.observability.record_event(
@@ -124,7 +129,7 @@ class ChunkingService:
                 matches.append({"id": paragraph.get("id", ""), "order": str(paragraph.get("order", ""))})
         return matches
 
-    def _split_text(self, text: str, size: int) -> list[str]:
+    def _split_text(self, text: str, size: int, overlap: int) -> list[str]:
         if self.text_splitter:
             try:
                 return [segment for segment in self.text_splitter.split_text(text) if segment.strip()]
@@ -139,7 +144,10 @@ class ChunkingService:
             segments.append(text[cursor:end])
             if end == len(text):
                 break
-            cursor = max(end - self.chunk_overlap, 0)
+            next_cursor = max(end - overlap, 0)
+            if next_cursor <= cursor:
+                next_cursor = cursor + 1
+            cursor = next_cursor
         return segments
 
     @staticmethod

@@ -9,6 +9,9 @@ TEST_ARTIFACTS_DIR.mkdir(exist_ok=True)
 os.environ["RUN_ARTIFACTS_DIR"] = str(TEST_ARTIFACTS_DIR)
 os.environ["INGESTION_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "ingestion")
 os.environ["DOCUMENT_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "documents")
+os.environ["LLM__PROVIDER"] = "mock"
+os.environ["EMBEDDINGS__PROVIDER"] = "mock"
+os.environ.setdefault("CHUNKING__INCLUDE_IMAGES", "false")
 
 
 def _clear_artifacts() -> None:

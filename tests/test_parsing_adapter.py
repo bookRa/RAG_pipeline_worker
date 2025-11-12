@@ -22,9 +22,19 @@ class StubLLM:
         )
 
 
+def _write_png(path: Path) -> None:
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover - test guard
+        raise RuntimeError("Pillow is required for parsing adapter tests.") from exc
+
+    img = Image.new("RGB", (2, 2), color="white")
+    img.save(path)
+
+
 def test_image_adapter_uses_multimodal_when_pixmap(tmp_path):
     pixmap_path = tmp_path / "page.png"
-    pixmap_path.write_bytes(b"fakepng")
+    _write_png(pixmap_path)
 
     text_llm = StubLLM()
     vision_llm = StubLLM()

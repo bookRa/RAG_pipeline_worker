@@ -57,6 +57,7 @@ class ParsingService:
         updated_document = document
         parsed_pages_meta = document.metadata.get("parsed_pages", {}).copy()
         pixmap_assets_meta = document.metadata.get("pixmap_assets", {}).copy()
+        pixmap_metrics = document.metadata.get("pixmap_metrics", {}).copy()
         pixmap_map = self._render_pixmaps(document.id, payload, document.file_type)
         structured_latencies_ms: list[float] = []
         pixmap_total_bytes = 0
@@ -127,29 +128,33 @@ class ParsingService:
             updated_metadata["parsed_pages"] = parsed_pages_meta
         if pixmap_assets_meta:
             updated_metadata["pixmap_assets"] = pixmap_assets_meta
-
-        updated_document = updated_document.model_copy(update={"status": "parsed", "metadata": updated_metadata})
-
         avg_latency = (
             round(sum(structured_latencies_ms) / len(structured_latencies_ms), 2)
             if structured_latencies_ms
             else None
         )
+        pixmap_metrics.update(
+            {
+                "generated": len(pixmap_map),
+                "attached": pixmap_attached,
+                "skipped": pixmap_skipped,
+                "total_size_bytes": pixmap_total_bytes,
+                "dpi": self.pixmap_dpi if self.include_images else None,
+                "avg_structured_latency_ms": avg_latency,
+            }
+        )
+        if pixmap_metrics:
+            updated_metadata["pixmap_metrics"] = pixmap_metrics
+
+        updated_document = updated_document.model_copy(update={"status": "parsed", "metadata": updated_metadata})
+
         self.observability.record_event(
             stage="parsing",
             details={
                 "document_id": updated_document.id,
                 "page_count": len(updated_document.pages),
                 "parser_used": parser.__class__.__name__ if parser else "placeholder",
-                "pixmap": {
-                    "enabled": bool(self.include_images),
-                    "generated": len(pixmap_map),
-                    "attached": pixmap_attached,
-                    "skipped": pixmap_skipped,
-                    "total_size_bytes": pixmap_total_bytes,
-                    "dpi": self.pixmap_dpi if self.include_images else None,
-                },
-                "structured_parser_latency_ms_avg": avg_latency,
+                "pixmap": pixmap_metrics,
             },
         )
         return updated_document

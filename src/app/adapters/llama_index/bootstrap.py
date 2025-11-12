@@ -1,16 +1,17 @@
 """Helpers for configuring LlamaIndex globals from application settings.
 
 These helpers keep all LlamaIndex imports inside the adapters layer so services
-and domain code remain framework-agnostic. The application now always boots with
-the LLM-backed pipeline, so importing this module should fail fast if the
-expected dependencies are missing.
+and domain code remain framework-agnostic.  The application now always boots
+with a deterministic (mock) LLM unless the environment explicitly opts into a
+provider such as OpenAI.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from typing import Any
+import hashlib
+from typing import Any, Sequence
 
 from ...config import Settings
 
@@ -21,12 +22,26 @@ try:  # Optional dependency – only needed when LlamaIndex is enabled.
     from llama_index.core import Settings as LlamaCoreSettings
     from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
     from llama_index.core.node_parser import SentenceSplitter, TokenTextSplitter
+    from llama_index.core.base.llms.base import (
+        ChatMessage,
+        ChatResponse,
+        ChatResponseGen,
+        CompletionResponse,
+        CompletionResponseGen,
+        ChatResponseAsyncGen,
+        CompletionResponseAsyncGen,
+    )
+    from llama_index.core.base.llms.types import LLMMetadata
+    from llama_index.core.llms.llm import LLM as LlamaIndexLLM
+    from llama_index.core.base.embeddings.base import BaseEmbedding, Embedding
 except ImportError:  # pragma: no cover - optional dependency
     LlamaCoreSettings = None  # type: ignore[assignment]
     CallbackManager = None  # type: ignore[assignment]
     TokenCountingHandler = None  # type: ignore[assignment]
     SentenceSplitter = None  # type: ignore[assignment]
     TokenTextSplitter = None  # type: ignore[assignment]
+    LlamaIndexLLM = None  # type: ignore[assignment]
+    BaseEmbedding = None  # type: ignore[assignment]
 
 
 class LlamaIndexBootstrapError(RuntimeError):
@@ -57,7 +72,11 @@ def configure_llama_index(settings: Settings) -> None:
 
 
 def _configure_llama_index(settings: Settings) -> None:
-    api_key, api_base = _resolve_openai_credentials(settings)
+    api_key = None
+    api_base = None
+    if settings.llm.provider == "openai":
+        api_key, api_base = _resolve_openai_credentials(settings)
+
     llm_client = _build_llm(settings, api_key=api_key, api_base=api_base)
     multi_modal_llm = _build_multi_modal_llm(settings, api_key=api_key, api_base=api_base)
     embed_model = _build_embedding(settings)
@@ -85,6 +104,8 @@ def _resolve_openai_credentials(settings: Settings) -> tuple[str, str | None]:
 
 def _build_llm(settings: Settings, *, api_key: str | None = None, api_base: str | None = None) -> Any:
     provider = settings.llm.provider
+    if provider == "mock":
+        return StructuredMockLLM()
     if provider == "openai":
         try:
             from llama_index.llms.openai import OpenAI
@@ -115,6 +136,8 @@ def _build_multi_modal_llm(
     api_base: str | None = None,
 ) -> Any | None:
     provider = settings.llm.provider
+    if provider == "mock":
+        return StructuredMockLLM()
     if provider == "openai":
         try:
             from llama_index.multi_modal_llms.openai import OpenAIMultiModal
@@ -139,6 +162,8 @@ def _build_multi_modal_llm(
 
 def _build_embedding(settings: Settings) -> Any:
     provider = settings.embeddings.provider
+    if provider == "mock":
+        return StructuredMockEmbedding(settings.embeddings.vector_dimension)
     if provider == "openai":
         try:
             from llama_index.embeddings.openai import OpenAIEmbedding
@@ -212,3 +237,120 @@ def get_llama_multi_modal_llm() -> Any:
     if _multi_modal_llm is None:
         raise LlamaIndexBootstrapError("Multi-modal LLM has not been configured.")
     return _multi_modal_llm
+
+
+class StructuredMockLLM(LlamaIndexLLM):
+    """Deterministic offline LLM compatible with LlamaIndex interfaces."""
+
+    @property
+    def metadata(self) -> LLMMetadata:
+        return LLMMetadata(
+            model_name="structured-mock-llm",
+            context_window=4096,
+            is_chat_model=False,
+        )
+
+    def _build_response(self, prompt: str) -> str:
+        payload = self._extract_payload(prompt)
+        document_id = payload.get("document_id", "mock-doc")
+        page_number = payload.get("page_number", 0)
+        raw_text = payload.get("raw_text", "")
+        paragraphs = raw_text.split("\n")
+        structured = {
+            "document_id": document_id,
+            "page_number": page_number,
+            "raw_text": raw_text,
+            "paragraphs": [
+                {"id": f"p{idx}", "order": idx, "text": text.strip()}
+                for idx, text in enumerate(paragraphs)
+                if text.strip()
+            ],
+            "tables": [],
+            "figures": [],
+        }
+        return json.dumps(structured)
+
+    def complete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        return CompletionResponse(text=self._build_response(prompt))
+
+    def stream_complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponseGen:
+        yield self.complete(prompt, formatted, **kwargs)
+
+    def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+        prompt = "\n".join(message.content for message in messages)
+        return ChatResponse(message=ChatMessage(role="assistant", content=self._build_response(prompt)))
+
+    def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
+        yield self.chat(messages, **kwargs)
+
+    async def acomplete(self, prompt: str, formatted: bool = False, **kwargs: Any) -> CompletionResponse:
+        return self.complete(prompt, formatted, **kwargs)
+
+    async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+        return self.chat(messages, **kwargs)
+
+    async def astream_complete(
+        self, prompt: str, formatted: bool = False, **kwargs: Any
+    ) -> CompletionResponseAsyncGen:
+        async def generator():
+            yield self.complete(prompt, formatted, **kwargs)
+
+        return generator()
+
+    async def astream_chat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponseAsyncGen:
+        async def generator():
+            yield self.chat(messages, **kwargs)
+
+        return generator()
+
+    @staticmethod
+    def _extract_payload(prompt: str) -> dict[str, Any]:
+        try:
+            payload_str = prompt.rsplit("\n\n", 1)[-1]
+            return json.loads(payload_str)
+        except (ValueError, json.JSONDecodeError):
+            return {}
+
+    def _as_query_component(self) -> "StructuredMockLLM":  # noqa: D401
+        return self
+
+
+class StructuredMockEmbedding(BaseEmbedding):
+    """Deterministic embedding model used for offline tests."""
+
+    def __init__(self, dimension: int) -> None:
+        super().__init__(model_name="structured-mock-embedding")
+        self._dimension = dimension
+
+    @property
+    def dimension(self) -> int:  # type: ignore[override]
+        return self._dimension
+
+    def _embed(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        return [((digest[idx % len(digest)] / 255.0) * 2) - 1 for idx in range(self._dimension)]
+
+    def _get_query_embedding(self, query: str) -> Embedding:
+        return self._embed(query)
+
+    async def _aget_query_embedding(self, query: str) -> Embedding:
+        return self._embed(query)
+
+    def _get_text_embedding(self, text: str) -> Embedding:
+        return self._embed(text)
+
+    async def _aget_text_embedding(self, text: str) -> Embedding:
+        return self._embed(text)
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[Embedding]:
+        return [self._embed(text) for text in texts]
+
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[Embedding]:
+        return [self._embed(text) for text in texts]
+
+    def _get_value(self) -> float:
+        return 0.0

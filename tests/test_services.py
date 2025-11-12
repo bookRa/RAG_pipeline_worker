@@ -142,6 +142,10 @@ def test_parsing_attaches_pixmap_metadata_when_enabled(tmp_path):
     assert parsed_meta["pixmap_path"] == str(pixmap_path)
     assert parsed_meta["pixmap_size_bytes"] == pixmap_path.stat().st_size
     assert result.metadata["pixmap_assets"]["1"] == str(pixmap_path)
+    metrics = result.metadata["pixmap_metrics"]
+    assert metrics["generated"] == 1
+    assert metrics["attached"] == 1
+    assert metrics["skipped"] == 0
 
 
 def test_parsing_with_real_pdf_parser():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Mapping, Protocol, Sequence, Any
+from typing import TYPE_CHECKING, Callable, Mapping, Protocol, Sequence, Any, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - type checking only
     from ..parsing.schemas import CleanedPage, ParsedPage
@@ -13,6 +13,7 @@ class TaskScheduler(Protocol):
         """Schedule the provided callable for asynchronous execution."""
 
 
+@runtime_checkable
 class DocumentParser(Protocol):
     """Port for file-type specific document parsers."""
 

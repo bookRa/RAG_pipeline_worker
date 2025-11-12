@@ -1,5 +1,6 @@
 <div style="display:flex;flex-direction:column;gap:28px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
   {% set chunk_stage = run.get_stage('chunking') %}
+  {% set pixmap_metrics = run.document.metadata.get('pixmap_metrics') if run.document and run.document.metadata else None %}
   <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;width:100%;max-width:100%;min-width:0;box-sizing:border-box;">
     <div>
       <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active run</div>
@@ -17,6 +18,42 @@
     <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.4);border-radius:12px;padding:12px;color:#fecdd3;">
       {{ run.error_message }}
     </div>
+  {% endif %}
+
+  {% if pixmap_metrics %}
+    <section>
+      <h4 style="margin-bottom:8px;">Multi-modal parsing metrics</h4>
+      <div class="metrics-grid">
+        <article class="metric-card">
+          <div class="metric-label">Pixmaps generated</div>
+          <div class="metric-value">{{ pixmap_metrics.generated or 0 }}</div>
+          <div class="metric-subtext">Rendered pages ({{ pixmap_metrics.dpi or 'n/a' }} DPI)</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Pixmaps attached</div>
+          <div class="metric-value">{{ pixmap_metrics.attached or 0 }}</div>
+          <div class="metric-subtext">Skipped: {{ pixmap_metrics.skipped or 0 }}</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Total image size</div>
+          {% set total_bytes = pixmap_metrics.total_size_bytes or 0 %}
+          <div class="metric-value">{{ '%.1f'|format((total_bytes / 1024) if total_bytes else 0) }} KB</div>
+          <div class="metric-subtext">Across attached pixmaps</div>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Avg parsing LLM latency</div>
+          {% set latency = pixmap_metrics.avg_structured_latency_ms %}
+          <div class="metric-value">
+            {% if latency %}
+              {{ '%.0f'|format(latency) }} ms
+            {% else %}
+              —
+            {% endif %}
+          </div>
+          <div class="metric-subtext">Mean of structured parser calls</div>
+        </article>
+      </div>
+    </section>
   {% endif %}
 
   {% if run.file_path and run.document %}
