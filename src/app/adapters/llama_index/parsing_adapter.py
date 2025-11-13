@@ -29,11 +29,22 @@ class ImageAwareParsingAdapter(ParsingLLM):
         vision_llm: Any | None = None,
         use_structured_outputs: bool = True,
         use_streaming: bool = True,
+        streaming_max_chars: int = 50000,
+        streaming_repetition_window: int = 200,
+        streaming_repetition_threshold: float = 0.8,
+        streaming_max_consecutive_newlines: int = 100,
     ) -> None:
         self._llm = llm
         self._vision_llm = vision_llm
         self._use_structured_outputs = use_structured_outputs
         self._use_streaming = use_streaming
+        
+        # Streaming guardrail settings
+        self._streaming_max_chars = streaming_max_chars
+        self._streaming_repetition_window = streaming_repetition_window
+        self._streaming_repetition_threshold = streaming_repetition_threshold
+        self._streaming_max_consecutive_newlines = streaming_max_consecutive_newlines
+        
         # Build system prompt from loaded prompts (combine system + user prompts)
         system_prompt = load_prompt(prompt_settings.parsing_system_prompt_path)
         user_prompt_template = load_prompt(prompt_settings.parsing_user_prompt_path)
@@ -258,7 +269,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         document_id: str,
         page_number: int,
     ) -> str:
-        """Stream chat response and log progress in real-time."""
+        """Stream chat response and log progress in real-time with repetition detection."""
         logger.info(
             "🔄 Starting streaming response for doc=%s page=%s...",
             document_id,
@@ -274,6 +285,21 @@ class ImageAwareParsingAdapter(ParsingLLM):
         log_interval_seconds = 5.0  # Log every 5 seconds
         last_log_time = start_time
         content_since_last_log = ""
+        
+        # Repetition detection configuration (from settings)
+        max_response_length = self._streaming_max_chars
+        repetition_window = self._streaming_repetition_window
+        repetition_threshold = self._streaming_repetition_threshold
+        consecutive_newlines_limit = self._streaming_max_consecutive_newlines
+        
+        # Log guardrail configuration for debugging
+        logger.info(
+            "🛡️ Guardrails active: max_chars=%d, rep_window=%d, rep_threshold=%.2f, max_consec_newlines=%d",
+            max_response_length,
+            repetition_window,
+            repetition_threshold,
+            consecutive_newlines_limit,
+        )
         
         try:
             # Call stream_chat to get streaming response
@@ -308,6 +334,97 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 
                 accumulated_content += delta
                 content_since_last_log += delta
+                
+                # Guardrail 1: Check for excessive response length
+                if len(accumulated_content) > max_response_length:
+                    logger.warning(
+                        "⚠️ Stopping stream for doc=%s page=%s: exceeded max length (%d chars)",
+                        document_id,
+                        page_number,
+                        max_response_length,
+                    )
+                    break
+                
+                # Guardrail 2: Check for repetitive patterns (e.g., infinite \n\n\n)
+                if len(accumulated_content) >= repetition_window:
+                    recent_content = accumulated_content[-repetition_window:]
+                    
+                    # Check if content is mostly the same character
+                    most_common_char = max(set(recent_content), key=recent_content.count)
+                    char_ratio = recent_content.count(most_common_char) / len(recent_content)
+                    
+                    # Debug: log every 50 chunks when checking repetition
+                    if chunk_count % 50 == 0:
+                        # Show a sample of the recent content to diagnose issues
+                        sample = recent_content[-50:] if len(recent_content) > 50 else recent_content
+                        logger.debug(
+                            "🔍 Repetition check [chunk %d]: %.1f%% of last %d chars are %s | sample: %s",
+                            chunk_count,
+                            char_ratio * 100,
+                            repetition_window,
+                            repr(most_common_char),
+                            repr(sample),
+                        )
+                    
+                    if char_ratio > repetition_threshold:
+                        logger.warning(
+                            "⚠️ Stopping stream for doc=%s page=%s: detected repetition loop "
+                            "(%.1f%% of last %d chars are '%s')",
+                            document_id,
+                            page_number,
+                            char_ratio * 100,
+                            repetition_window,
+                            repr(most_common_char),
+                        )
+                        break
+                
+                # Guardrail 3: Check for excessive consecutive newlines (both actual \n and escaped \\n)
+                # Only check the last portion of content for efficiency (last 500 chars)
+                check_window = min(500, len(accumulated_content))
+                tail_content = accumulated_content[-check_window:]
+                
+                # Count max consecutive ACTUAL newlines in the tail
+                max_consecutive_newlines = 0
+                current_consecutive = 0
+                for char in tail_content:
+                    if char == '\n':
+                        current_consecutive += 1
+                        max_consecutive_newlines = max(max_consecutive_newlines, current_consecutive)
+                    else:
+                        current_consecutive = 0
+                
+                # Also check for the string "\\n" repeated (escaped newlines in JSON)
+                escaped_newline_count = tail_content.count('\\n')
+                escaped_newline_ratio = escaped_newline_count * 2 / len(tail_content) if tail_content else 0  # *2 because \\n is 2 chars
+                
+                if chunk_count % 50 == 0:
+                    logger.debug(
+                        "🔍 Newline check [chunk %d]: max consec newlines = %d, escaped \\\\n ratio = %.1f%%",
+                        chunk_count,
+                        max_consecutive_newlines,
+                        escaped_newline_ratio * 100,
+                    )
+                
+                # Trigger if we have excessive actual newlines OR excessive escaped newlines
+                if max_consecutive_newlines >= consecutive_newlines_limit:
+                    logger.warning(
+                        "⚠️ Stopping stream for doc=%s page=%s: detected %d consecutive newlines (limit: %d)",
+                        document_id,
+                        page_number,
+                        max_consecutive_newlines,
+                        consecutive_newlines_limit,
+                    )
+                    break
+                
+                # Also stop if >50% of recent content is escaped newlines (likely a runaway response)
+                if escaped_newline_ratio > 0.5:
+                    logger.warning(
+                        "⚠️ Stopping stream for doc=%s page=%s: detected excessive escaped newlines (%.1f%% of tail)",
+                        document_id,
+                        page_number,
+                        escaped_newline_ratio * 100,
+                    )
+                    break
                 
                 # Log accumulated content every N seconds
                 if current_time - last_log_time >= log_interval_seconds:

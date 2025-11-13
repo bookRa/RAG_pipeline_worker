@@ -27,6 +27,12 @@ class LLMSettings(BaseModel):
     use_structured_outputs: bool = True
     use_responses_api: bool = True
     use_streaming: bool = True
+    
+    # Streaming guardrails to prevent infinite loops
+    streaming_max_chars: int = 50000  # Stop streaming after this many characters
+    streaming_repetition_window: int = 200  # Check last N chars for repetition
+    streaming_repetition_threshold: float = 0.8  # Stop if >X% same character
+    streaming_max_consecutive_newlines: int = 100  # Stop if N+ consecutive \n
 
 
 class EmbeddingSettings(BaseModel):

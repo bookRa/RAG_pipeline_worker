@@ -88,6 +88,10 @@ class AppContainer:
                 vision_llm=None,  # Use same LLM for vision
                 use_structured_outputs=self.settings.llm.use_structured_outputs,
                 use_streaming=self.settings.llm.use_streaming,
+                streaming_max_chars=self.settings.llm.streaming_max_chars,
+                streaming_repetition_window=self.settings.llm.streaming_repetition_window,
+                streaming_repetition_threshold=self.settings.llm.streaming_repetition_threshold,
+                streaming_max_consecutive_newlines=self.settings.llm.streaming_max_consecutive_newlines,
             )
             self.structured_cleaner = CleaningAdapter(
                 llm=llm_client,
