@@ -139,6 +139,33 @@ class ParsingService:
             updated_metadata["parsed_pages"] = parsed_pages_meta
         if pixmap_assets_meta:
             updated_metadata["pixmap_assets"] = pixmap_assets_meta
+        
+        # NEW: Track parsing failures
+        parsing_failures = []
+        for page_num_str, page_data in parsed_pages_meta.items():
+            if page_data.get("parsing_status") != "success":
+                parsing_failures.append({
+                    "page_number": int(page_num_str),
+                    "status": page_data.get("parsing_status"),
+                    "error_type": page_data.get("error_type"),
+                    "error_details": page_data.get("error_details"),
+                })
+        
+        if parsing_failures:
+            updated_metadata["parsing_failures"] = parsing_failures
+            logger.warning(
+                "❌ %d page(s) failed or partially failed parsing for doc=%s",
+                len(parsing_failures),
+                document.id,
+            )
+            for failure in parsing_failures:
+                logger.warning(
+                    "  Page %d: %s (%s)",
+                    failure["page_number"],
+                    failure["status"],
+                    failure["error_type"],
+                )
+        
         avg_latency = (
             round(sum(structured_latencies_ms) / len(structured_latencies_ms), 2)
             if structured_latencies_ms
@@ -152,6 +179,7 @@ class ParsingService:
                 "total_size_bytes": pixmap_total_bytes,
                 "dpi": self.pixmap_dpi if self.include_images else None,
                 "avg_structured_latency_ms": avg_latency,
+                "parsing_failures_count": len(parsing_failures),  # NEW: Add failure count to metrics
             }
         )
         if pixmap_metrics:
@@ -166,6 +194,7 @@ class ParsingService:
                 "page_count": len(updated_document.pages),
                 "parser_used": parser.__class__.__name__ if parser else "placeholder",
                 "pixmap": pixmap_metrics,
+                "parsing_failures_count": len(parsing_failures),  # NEW: Include in observability
             },
         )
         return updated_document

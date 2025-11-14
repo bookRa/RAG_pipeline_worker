@@ -95,6 +95,20 @@ class ParsedPage(BaseModel):
     )
     pixmap_path: Optional[str] = None
     pixmap_size_bytes: Optional[int] = None
+    
+    # Parsing status and error tracking
+    parsing_status: Literal["success", "failed", "partial"] = Field(
+        default="success",
+        description="Status of parsing attempt: success (fully parsed), failed (parsing error), partial (some content extracted)",
+    )
+    error_details: Optional[str] = Field(
+        default=None,
+        description="Error message if parsing failed or encountered issues",
+    )
+    error_type: Optional[str] = Field(
+        default=None,
+        description="Type of error: repetition_loop, network_error, timeout, validation_error, etc.",
+    )
 
     # Backward compatibility helpers (for gradual migration)
     @property

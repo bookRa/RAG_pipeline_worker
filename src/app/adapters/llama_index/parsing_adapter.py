@@ -63,7 +63,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         # Require pixmap for vision parsing (image-only mode)
         if not pixmap_path:
             logger.warning(
-                "No pixmap provided for doc=%s page=%s, returning empty page",
+                "❌ No pixmap provided for doc=%s page=%s, marking as failed",
                 document_id,
                 page_number,
             )
@@ -72,6 +72,9 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 page_number=page_number,
                 raw_text="",
                 components=[],
+                parsing_status="failed",
+                error_type="missing_pixmap",
+                error_details="No pixmap image provided for vision-based parsing",
             )
         
         try:
@@ -87,19 +90,37 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     self._log_trace(document_id, page_number, pixmap_path, parsed_page)
                     return parsed_page
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.exception(
-                "Falling back to empty page for doc=%s page=%s pixmap=%s: %s",
+            logger.error(
+                "❌ Parsing failed for doc=%s page=%s pixmap=%s: %s",
                 document_id,
                 page_number,
                 pixmap_path,
                 exc,
             )
+            return ParsedPage(
+                document_id=document_id,
+                page_number=page_number,
+                raw_text="",
+                components=[],
+                parsing_status="failed",
+                error_type="exception",
+                error_details=f"{type(exc).__name__}: {str(exc)}",
+            )
         
+        # If we reach here, both parsing attempts returned None
+        logger.error(
+            "❌ All parsing methods returned None for doc=%s page=%s",
+            document_id,
+            page_number,
+        )
         return ParsedPage(
             document_id=document_id,
             page_number=page_number,
             raw_text="",
             components=[],
+            parsing_status="failed",
+            error_type="parsing_returned_none",
+            error_details="All parsing methods failed to return a valid page",
         )
 
     def _parse_with_vision_structured(
@@ -152,8 +173,11 @@ class ImageAwareParsingAdapter(ParsingLLM):
             ]
             
             # Call chat with streaming if enabled
+            stream_error_type: str | None = None
+            stream_error_details: str | None = None
+            
             if self._use_streaming:
-                content = self._stream_chat_response(messages, document_id, page_number)
+                content, stream_error_type, stream_error_details = self._stream_chat_response(messages, document_id, page_number)
             else:
                 response = self._llm.chat(messages)
                 content = self._extract_content_from_response(response)
@@ -177,6 +201,26 @@ class ImageAwareParsingAdapter(ParsingLLM):
                         "page_number": page_number,
                     }
                 )
+                
+                # If streaming hit a guardrail, mark as failed or partial
+                if stream_error_type:
+                    # If we got some content but hit a guardrail, mark as partial
+                    status = "partial" if len(parsed_page.components) > 0 else "failed"
+                    parsed_page = parsed_page.model_copy(
+                        update={
+                            "parsing_status": status,
+                            "error_type": stream_error_type,
+                            "error_details": stream_error_details,
+                        }
+                    )
+                    logger.warning(
+                        "⚠️ Parsing marked as %s due to %s for doc=%s page=%s",
+                        status,
+                        stream_error_type,
+                        document_id,
+                        page_number,
+                    )
+                
                 return parsed_page
         except Exception as exc:
             logger.warning(
@@ -268,8 +312,12 @@ class ImageAwareParsingAdapter(ParsingLLM):
         messages: list[ChatMessage],
         document_id: str,
         page_number: int,
-    ) -> str:
-        """Stream chat response and log progress in real-time with repetition detection."""
+    ) -> tuple[str, str | None, str | None]:
+        """Stream chat response and log progress in real-time with repetition detection.
+        
+        Returns:
+            tuple[str, str | None, str | None]: (content, error_type, error_details)
+        """
         logger.info(
             "🔄 Starting streaming response for doc=%s page=%s...",
             document_id,
@@ -280,6 +328,10 @@ class ImageAwareParsingAdapter(ParsingLLM):
         first_token_time = None
         accumulated_content = ""
         chunk_count = 0
+        
+        # Track guardrail failures
+        error_type: str | None = None
+        error_details: str | None = None
         
         # Time-based logging configuration
         log_interval_seconds = 5.0  # Log every 5 seconds
@@ -337,6 +389,8 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 
                 # Guardrail 1: Check for excessive response length
                 if len(accumulated_content) > max_response_length:
+                    error_type = "max_length_exceeded"
+                    error_details = f"Streaming stopped: response exceeded maximum length ({max_response_length} chars, got {len(accumulated_content)})"
                     logger.warning(
                         "⚠️ Stopping stream for doc=%s page=%s: exceeded max length (%d chars)",
                         document_id,
@@ -367,6 +421,8 @@ class ImageAwareParsingAdapter(ParsingLLM):
                         )
                     
                     if char_ratio > repetition_threshold:
+                        error_type = "repetition_loop"
+                        error_details = f"Streaming stopped: detected repetition loop ({char_ratio*100:.1f}% of last {repetition_window} chars are {repr(most_common_char)})"
                         logger.warning(
                             "⚠️ Stopping stream for doc=%s page=%s: detected repetition loop "
                             "(%.1f%% of last %d chars are '%s')",
@@ -407,6 +463,8 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 
                 # Trigger if we have excessive actual newlines OR excessive escaped newlines
                 if max_consecutive_newlines >= consecutive_newlines_limit:
+                    error_type = "excessive_newlines"
+                    error_details = f"Streaming stopped: detected {max_consecutive_newlines} consecutive newlines (limit: {consecutive_newlines_limit})"
                     logger.warning(
                         "⚠️ Stopping stream for doc=%s page=%s: detected %d consecutive newlines (limit: %d)",
                         document_id,
@@ -418,6 +476,8 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 
                 # Also stop if >50% of recent content is escaped newlines (likely a runaway response)
                 if escaped_newline_ratio > 0.5:
+                    error_type = "excessive_escaped_newlines"
+                    error_details = f"Streaming stopped: detected excessive escaped newlines ({escaped_newline_ratio*100:.1f}% of recent content)"
                     logger.warning(
                         "⚠️ Stopping stream for doc=%s page=%s: detected excessive escaped newlines (%.1f%% of tail)",
                         document_id,
@@ -456,17 +516,28 @@ class ImageAwareParsingAdapter(ParsingLLM):
             
             # Final summary
             total_time = time.time() - start_time
-            logger.info(
-                "✅ Streaming complete for doc=%s page=%s: %d chunks, %d chars in %.1fs (TTFT: %.1fs)",
-                document_id,
-                page_number,
-                chunk_count,
-                len(accumulated_content),
-                total_time,
-                (first_token_time - start_time) if first_token_time else 0,
-            )
+            if error_type:
+                logger.warning(
+                    "⚠️ Streaming stopped with guardrail for doc=%s page=%s: %s - %d chunks, %d chars in %.1fs",
+                    document_id,
+                    page_number,
+                    error_type,
+                    chunk_count,
+                    len(accumulated_content),
+                    total_time,
+                )
+            else:
+                logger.info(
+                    "✅ Streaming complete for doc=%s page=%s: %d chunks, %d chars in %.1fs (TTFT: %.1fs)",
+                    document_id,
+                    page_number,
+                    chunk_count,
+                    len(accumulated_content),
+                    total_time,
+                    (first_token_time - start_time) if first_token_time else 0,
+                )
             
-            return accumulated_content
+            return accumulated_content, error_type, error_details
             
         except Exception as exc:
             logger.error(
@@ -476,7 +547,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 chunk_count,
                 exc,
             )
-            raise
+            return accumulated_content, "streaming_exception", f"{type(exc).__name__}: {str(exc)}"
 
     def _extract_content_from_response(self, response: Any) -> str:
         """Extract text content from a non-streaming response."""
@@ -513,6 +584,15 @@ class ImageAwareParsingAdapter(ParsingLLM):
         logger.info("🔍 PARSING TRACE - Document: %s, Page: %s", document_id, page_number)
         logger.info("=" * 80)
         logger.info("Pixmap Path: %s", pixmap_path)
+        logger.info("Parsing Status: %s", parsed_page.parsing_status)
+        
+        # NEW: Log error details if parsing failed/partial
+        if parsed_page.parsing_status != "success":
+            logger.warning("-" * 80)
+            logger.warning("❌ PARSING %s", parsed_page.parsing_status.upper())
+            logger.warning("-" * 80)
+            logger.warning("Error Type: %s", parsed_page.error_type)
+            logger.warning("Error Details: %s", parsed_page.error_details)
         
         # NEW: Log page summary if present
         if parsed_page.page_summary:
