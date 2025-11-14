@@ -60,6 +60,11 @@ class ChunkingSettings(BaseModel):
     pixmap_max_width: int = 1536
     pixmap_max_height: int = 1536
     pixmap_resize_quality: str = "LANCZOS"
+    
+    # NEW: Component-aware chunking settings
+    strategy: Literal["component", "hybrid", "fixed"] = "component"
+    component_merge_threshold: int = 100  # Merge components under this token count
+    max_component_tokens: int = 500  # Split components over this token count
 
 
 class VectorStoreSettings(BaseModel):
@@ -92,6 +97,10 @@ class Settings(BaseSettings):
     chunking: ChunkingSettings = ChunkingSettings()
     vector_store: VectorStoreSettings = VectorStoreSettings()
     prompts: PromptSettings = PromptSettings()
+    
+    # NEW: Pipeline improvement settings
+    use_vision_cleaning: bool = False  # Enable vision-based cleaning (requires vision-capable LLM)
+    use_llm_summarization: bool = True  # Enable LLM-based document/chunk summarization
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),

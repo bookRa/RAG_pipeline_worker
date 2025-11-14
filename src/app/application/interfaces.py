@@ -65,8 +65,13 @@ class ParsingLLM(Protocol):
 class CleaningLLM(Protocol):
     """LLM-driven cleaner that normalizes parsed content."""
 
-    def clean_page(self, parsed_page: ParsedPage) -> CleanedPage:
-        """Return a cleaned version of the parsed page with normalized segments."""
+    def clean_page(self, parsed_page: ParsedPage, pixmap_path: str | None = None) -> CleanedPage:
+        """Return a cleaned version of the parsed page with normalized segments.
+        
+        Args:
+            parsed_page: The parsed page to clean
+            pixmap_path: Optional path to page image for vision-based cleaning context
+        """
 
 
 class EmbeddingGenerator(Protocol):

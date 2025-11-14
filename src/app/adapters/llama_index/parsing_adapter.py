@@ -510,9 +510,17 @@ class ImageAwareParsingAdapter(ParsingLLM):
         from ...parsing.schemas import ParsedTextComponent, ParsedImageComponent, ParsedTableComponent
         
         logger.info("=" * 80)
-        logger.info("PARSING TRACE - Document: %s, Page: %s", document_id, page_number)
+        logger.info("🔍 PARSING TRACE - Document: %s, Page: %s", document_id, page_number)
         logger.info("=" * 80)
         logger.info("Pixmap Path: %s", pixmap_path)
+        
+        # NEW: Log page summary if present
+        if parsed_page.page_summary:
+            logger.info("-" * 80)
+            logger.info("📄 PAGE SUMMARY:")
+            logger.info("-" * 80)
+            logger.info("%s", parsed_page.page_summary)
+        
         logger.info("-" * 80)
         logger.info("RAW TEXT (Markdown):")
         logger.info("-" * 80)
@@ -536,6 +544,9 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 caption_str = f" - {component.caption}" if component.caption else ""
                 logger.info("  [%d] TABLE - order=%d%s: %d rows", 
                           i, component.order, caption_str, len(component.rows))
+                # NEW: Log table summary if present
+                if component.table_summary:
+                    logger.info("      📊 summary: %s", component.table_summary)
                 if component.rows:
                     # Show all column names
                     first_row = component.rows[0]

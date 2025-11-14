@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from random import Random
 from typing import Sequence
 
 from ..application.interfaces import EmbeddingGenerator, ObservabilityRecorder, VectorStoreAdapter
 from ..domain.models import Document
+
+logger = logging.getLogger(__name__)
 
 
 class VectorService:
@@ -51,13 +54,32 @@ class VectorService:
     def vectorize(self, document: Document) -> Document:
         if self.latency > 0:
             time.sleep(self.latency)
+        
+        logger.info(
+            "🎨 Starting vectorization for doc=%s (%d dimension)",
+            document.id,
+            self.dimension,
+        )
+        
         vector_attached = 0
+        contextualized_count = 0
         sample_vectors: list[dict[str, object]] = []
         updated_pages = []
         
         for page in document.pages:
             updated_chunks = []
-            chunk_texts = [chunk.cleaned_text or chunk.text or "" for chunk in page.chunks]
+            # Use contextualized_text for embedding (with context prefix)
+            # Fall back to cleaned_text or raw text if contextualized_text is not available
+            chunk_texts = [
+                chunk.contextualized_text or chunk.cleaned_text or chunk.text or "" 
+                for chunk in page.chunks
+            ]
+            
+            # Log which chunks have contextualized text
+            for chunk in page.chunks:
+                if chunk.contextualized_text:
+                    contextualized_count += 1
+            
             embeddings = self._embed_batch(chunk_texts)
             for chunk, vector in zip(page.chunks, embeddings):
                 
@@ -65,6 +87,7 @@ class VectorService:
                     updated_extra = chunk.metadata.extra.copy()
                     updated_extra["vector"] = vector
                     updated_extra["vector_dimension"] = self.dimension
+                    updated_extra["used_contextualized_text"] = bool(chunk.contextualized_text)
                     updated_metadata = chunk.metadata.model_copy(update={"extra": updated_extra})
                     updated_chunk = chunk.model_copy(update={"metadata": updated_metadata})
                 else:
@@ -77,6 +100,12 @@ class VectorService:
             
             updated_page = page.model_copy(update={"chunks": updated_chunks})
             updated_pages.append(updated_page)
+        
+        logger.info(
+            "✅ Vectorization complete: %d vectors created, %d used contextualized text",
+            vector_attached,
+            contextualized_count,
+        )
 
         updated_metadata = document.metadata.copy()
         updated_metadata["vector_dimension"] = self.dimension

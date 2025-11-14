@@ -1,9 +1,13 @@
-Return JSON with keys `document_id`, `page_number`, `raw_text`, and `components`.
+Return JSON with keys `document_id`, `page_number`, `raw_text`, `page_summary`, and `components`.
 
 **Required Fields:**
 - `document_id`: The document identifier
 - `page_number`: The page number (1-indexed)
 - `raw_text`: Full markdown representation of the page content (see system prompt for details)
+- `page_summary`: A 2-3 sentence summary describing this page's role in the document and its key components
+  - Explain what this page is about and its purpose
+  - Mention key component types (e.g., "Contains a revision table and technical specifications")
+  - Describe how this page fits into the overall document structure
 - `components`: An ordered array of components reflecting the page layout from top to bottom, left to right
 
 **Component Types:**
@@ -58,6 +62,11 @@ Return JSON with keys `document_id`, `page_number`, `raw_text`, and `components`
      - Keys represent column names/identifiers
      - Values represent cell content
      - Different rows can have different keys (handles merged cells)
+   - `table_summary`: REQUIRED - A 2-3 sentence summary of what the table shows
+     - Describe the table's purpose and key information
+     - Explain what data the table contains and what it represents
+     - Example: "This table lists performance metrics for the system, showing response time, throughput, and error rate measurements with their units."
+     - Always provide this summary even if the table is empty or simple
    - `bbox`: Optional bounding box coordinates
    
    Example:
@@ -67,6 +76,7 @@ Return JSON with keys `document_id`, `page_number`, `raw_text`, and `components`
      "id": "uuid",
      "order": 1,
      "caption": "Performance Metrics",
+     "table_summary": "This table presents key performance metrics for the system, including response time (150ms), throughput (1000 req/s), and error rate (0.01%), with all measurements shown in their respective units.",
      "rows": [
        {"Metric": "Response Time", "Value": "150ms", "Unit": "milliseconds"},
        {"Metric": "Throughput", "Value": "1000", "Unit": "req/s"},
@@ -79,6 +89,7 @@ Return JSON with keys `document_id`, `page_number`, `raw_text`, and `components`
    ```json
    {
      "type": "table",
+     "table_summary": "This table categorizes system components into Hardware (CPU and RAM) and Software (OS), showing their specifications.",
      "rows": [
        {"Category": "Hardware", "Item": "CPU", "Spec": "Intel i7"},
        {"Category": "Hardware", "Item": "RAM", "Spec": "16GB"},

@@ -97,6 +97,7 @@ class AppContainer:
                 llm=llm_client,
                 prompt_settings=self.settings.prompts,
                 use_structured_outputs=self.settings.llm.use_structured_outputs,
+                use_vision=self.settings.use_vision_cleaning,  # NEW: Vision-based cleaning
             )
             self.summary_generator = LlamaIndexSummaryAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
             self.embedding_generator = LlamaIndexEmbeddingAdapter(
@@ -131,11 +132,15 @@ class AppContainer:
             chunk_size=self.settings.chunking.chunk_size,
             chunk_overlap=self.settings.chunking.chunk_overlap,
             text_splitter=self.text_splitter,
+            strategy=self.settings.chunking.strategy,  # NEW: Component-aware chunking
+            component_merge_threshold=self.settings.chunking.component_merge_threshold,
+            max_component_tokens=self.settings.chunking.max_component_tokens,
         )
         self.enrichment_service = EnrichmentService(
             observability=self.observability,
             latency=stage_latency,
             summary_generator=self.summary_generator,
+            use_llm_summarization=self.settings.use_llm_summarization,  # NEW: LLM-based summarization
         )
         self.vector_store = InMemoryVectorStore()
         self.vector_service = VectorService(

@@ -56,6 +56,10 @@ class ParsedTableComponent(BaseModel):
         default_factory=list,
         description="List of rows, each row is a dict with variable keys (handles merged cells, different column counts)",
     )
+    table_summary: Optional[str] = Field(
+        default=None,
+        description="LLM-generated 2-3 sentence summary of what the table shows, its purpose, and key information",
+    )
     bbox: Optional[BoundingBox] = None
 
     @field_validator("rows")
@@ -84,6 +88,10 @@ class ParsedPage(BaseModel):
     components: list[ParsedComponent] = Field(
         default_factory=list,
         description="Ordered list of components reflecting page layout (top to bottom, left to right)",
+    )
+    page_summary: Optional[str] = Field(
+        default=None,
+        description="LLM-generated summary describing the page's role in the document and key components",
     )
     pixmap_path: Optional[str] = None
     pixmap_size_bytes: Optional[int] = None

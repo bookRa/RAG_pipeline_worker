@@ -51,6 +51,7 @@ class CleaningService:
         llm_segments: dict[str, CleanedPage] = {}
 
         parsed_pages_meta = updated_metadata.get("parsed_pages", {})
+        pixmap_assets = updated_metadata.get("pixmap_assets", {})
         
         for page in document.pages:
             raw_text = page.text or ""
@@ -59,9 +60,11 @@ class CleaningService:
 
             if self.structured_cleaner:
                 parsed_payload = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(page.page_number)
+                pixmap_path = pixmap_assets.get(str(page.page_number))
+                
                 if parsed_payload:
                     parsed_page = ParsedPage.model_validate(parsed_payload)
-                    cleaned_segments = self._run_structured_cleaner(parsed_page)
+                    cleaned_segments = self._run_structured_cleaner(parsed_page, pixmap_path)
                     cleaned_page_text = "\n\n".join(segment.text for segment in cleaned_segments.segments).strip() or cleaned_page_text
                     llm_segments[str(page.page_number)] = cleaned_segments
             
@@ -146,6 +149,6 @@ class CleaningService:
         )
         return updated_document
 
-    def _run_structured_cleaner(self, parsed_page: ParsedPage) -> CleanedPage:
+    def _run_structured_cleaner(self, parsed_page: ParsedPage, pixmap_path: str | None = None) -> CleanedPage:
         assert self.structured_cleaner  # for mypy
-        return self.structured_cleaner.clean_page(parsed_page)
+        return self.structured_cleaner.clean_page(parsed_page, pixmap_path)
