@@ -51,11 +51,16 @@ src/app/
 │   ├── pipeline_runner.py
 │   └── run_manager.py
 │
-├── adapters/            # Primary adapters (parsers, LLM clients)
-│   ├── pdf_parser.py
+├── adapters/            # Primary adapters (LLM-powered via LlamaIndex)
+│   ├── llama_index/     # LlamaIndex-based adapters
+│   │   ├── bootstrap.py           # LlamaIndex configuration
+│   │   ├── parsing_adapter.py     # ImageAwareParsingAdapter (vision LLM)
+│   │   ├── cleaning_adapter.py    # CleaningAdapter (text LLM)
+│   │   ├── summary_adapter.py     # LlamaIndexSummaryAdapter
+│   │   └── embedding_adapter.py   # LlamaIndexEmbeddingAdapter
+│   ├── pdf_parser.py    # Legacy fallback parsers
 │   ├── docx_parser.py
-│   ├── ppt_parser.py
-│   └── llm_client.py
+│   └── ppt_parser.py
 │
 ├── persistence/         # Secondary adapters (repositories)
 │   ├── ports.py         # Repository interfaces
@@ -147,11 +152,11 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 | Stage | Class | Description | Status & Telemetry |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | Records the upload event, persists raw bytes through the `IngestionRepository`, computes checksum, and stamps `ingested_at`. | Sets `Document.status = "ingested"` and emits `stage="ingestion"` events containing filename, type, and size. |
-| Parsing | `ParsingService` | Resolves a `DocumentParser` for the requested file type (pdfplumber-backed PDF parser plus DOCX/PPT stubs) and creates immutable `Page` models; falls back to placeholder text if parsing yields no pages. | Sets status to `"parsed"` and reports parser name plus per-page previews. |
-| Cleaning | `CleaningService` | Normalizes whitespace (or injected normalizer), records `cleaning_report`, and stores `cleaning_metadata_by_page` so chunking can attach metadata later. | Sets status to `"cleaned"` and logs profile + summary counts. |
-| Chunking | `ChunkingService` | Splits each page into overlapping `Chunk` slices, preserves raw text, attaches cleaned slices if available, and adds cleaning metadata under `chunk.metadata.extra`. | Sets status to `"chunked"` and returns per-page chunk arrays, offsets, and chunk counts. |
-| Enrichment | `EnrichmentService` | Ensures each chunk has a title/summary by delegating to the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub). Builds a lightweight document summary when possible. | Sets status to `"enriched"` and emits summaries for dashboard display. |
-| Vectorization | `VectorService` | Generates deterministic placeholder vectors (configurable dimension) for every chunk and stores sample vectors on document metadata to aid debugging. | Sets status to `"vectorized"` and records vector counts + sample vectors. |
+| Parsing | `ParsingService` | Renders 300 DPI page pixmaps via `PixmapFactory`, then invokes `ImageAwareParsingAdapter` (vision LLM) to extract structured components (text, tables, images). Produces `ParsedPage` with table summaries, page summaries, and component metadata. Stores pixmaps under `artifacts/pixmaps/`. | Sets status to `"parsed"` and reports parsed component count, pixmap generation metrics, and LLM latency. |
+| Cleaning | `CleaningService` | Invokes `CleaningAdapter` (LlamaIndex text LLM) with parsed components. Normalizes text, flags segments for review (`needs_review`), and generates cleaned text per page. Optionally uses vision for layout-aware cleaning. | Sets status to `"cleaned"` and reports segment count, flagged segments, and cleaning metadata stored in `cleaning_metadata_by_page`. |
+| Chunking | `ChunkingService` | Supports three strategies: `component` (preserves table/image boundaries), `hybrid`, or `fixed` (legacy overlap). Component strategy groups small components and splits large ones. Attaches component metadata (type, order, summary, description) to chunks. | Sets status to `"chunked"` and reports strategy used, component grouping stats, and chunk count per component type. |
+| Enrichment | `EnrichmentService` | Generates document-level summary from page summaries via `LlamaIndexSummaryAdapter`. Creates contextualized text for each chunk using Anthropic's contextual retrieval pattern: `[Document: X \| Page: Y \| Section: Z \| Type: T]\n\nchunk_text`. | Sets status to `"enriched"` and reports document summary generation, chunk summaries, and contextualized text creation metrics. |
+| Vectorization | `VectorService` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`. Preserves both context-enriched text for retrieval and original cleaned text for generation. Stores vectors in `chunk.metadata.extra.vector`. | Sets status to `"vectorized"` and reports embedding dimension, count of chunks using contextualized text, and sample vectors. |
 
 `PipelineRunner` executes these services sequentially, captures duration/metadata per stage, and hands the `PipelineResult` to `PipelineRunManager`. The run manager snapshots stage output via `PipelineRunRepository`, allowing the dashboard to show incremental progress while background work runs via the `TaskScheduler` port.
 
@@ -159,13 +164,27 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 
 ## Ports and Adapters in this Release
 
-- **DocumentParser** → Implemented by `PdfParserAdapter`, `DocxParserAdapter`, and `PptParserAdapter`. Only the PDF adapter talks to `pdfplumber`; the other two remain simple placeholders until real parsers are introduced.
-- **SummaryGenerator** → `LLMSummaryAdapter` truncates chunk text today, but any real LLM-backed summarizer can be swapped in without touching `EnrichmentService`.
+### LlamaIndex-Powered Adapters
+
+- **ParsingLLM (ImageAwareParsingAdapter)** → Wraps OpenAI vision LLM via LlamaIndex `OpenAIMultiModal`. Accepts 300 DPI pixmaps and produces structured `ParsedPage` output using `as_structured_llm()` for reliable JSON extraction. Loads prompts from `docs/prompts/parsing/`. Supports streaming for observability or native JSON mode for reliability.
+
+- **CleaningLLM (CleaningAdapter)** → Uses LlamaIndex text LLM with `as_structured_llm(CleanedPage)` to normalize parsed content, flag segments for human review, and generate cleaned text. Optionally accepts pixmap paths for vision-based cleaning.
+
+- **SummaryGenerator (LlamaIndexSummaryAdapter)** → Generates LLM-based summaries for chunks and documents. Uses prompts from `docs/prompts/summarization/`. Returns plain text summaries (2-3 sentences per chunk, 3-4 sentences per document).
+
+- **EmbeddingGenerator (LlamaIndexEmbeddingAdapter)** → Delegates to LlamaIndex's configured embedding model (via `llama_index.core.Settings`). Embeds contextualized text for improved retrieval performance.
+
+### Legacy Adapters
+
+- **DocumentParser** → Implemented by `PdfParserAdapter`, `DocxParserAdapter`, and `PptParserAdapter`. Used as fallback when vision LLM parsing fails or is disabled. Only the PDF adapter talks to `pdfplumber`.
+
+### Infrastructure Adapters
+
 - **ObservabilityRecorder** → `LoggingObservabilityRecorder` bridges to Python logging and outputs JSON payloads per stage. Tests often rely on `NullObservabilityRecorder` or bespoke stubs to assert emitted events.
 - **TaskScheduler** → `BackgroundTaskScheduler` wraps FastAPI's `BackgroundTasks` so `PipelineRunManager` can execute long-running work asynchronously from dashboard requests.
 - **Repositories** → `FileSystemIngestionRepository`, `FileSystemDocumentRepository`, and `FileSystemPipelineRunRepository` implement the storage ports declared under `src/app/persistence/ports.py`. They insulate services/use cases from persistence concerns.
 
-Every adapter is wired exclusively inside `src/app/container.py`, which becomes the single place to configure environment-driven overrides (custom storage paths, alternate observability adapters, new parsers, etc.).
+Every adapter is wired exclusively inside `src/app/container.py`, which becomes the single place to configure environment-driven overrides (custom storage paths, alternate observability adapters, new parsers, LLM providers, etc.).
 
 ---
 
@@ -440,6 +459,196 @@ def test_services_dont_import_concrete_adapters():
 4. **Domain depending on infrastructure**
    - ❌ Domain models importing FastAPI, databases, etc.
    - ✅ Domain only imports stdlib + pydantic
+
+---
+
+## LlamaIndex Integration
+
+### Configuration and Bootstrap
+
+The pipeline uses LlamaIndex for all LLM-powered operations. Configuration happens in two layers:
+
+1. **Config Models (`src/app/config.py`)**: Typed settings for LLM provider, model, temperature, structured output options, chunking strategy, embedding model, etc.
+
+2. **Bootstrap (`src/app/adapters/llama_index/bootstrap.py`)**: Wires config into `llama_index.core.Settings` at startup, ensuring all LlamaIndex-powered adapters share the same configuration.
+
+```python
+# Example: How bootstrap configures LlamaIndex
+from llama_index.core import Settings
+from llama_index.llms.openai import OpenAI
+
+def configure_llama_index(config: Settings):
+    Settings.llm = OpenAI(
+        model=config.llm.model,
+        temperature=config.llm.temperature,
+        api_key=config.llm.api_key
+    )
+    Settings.embed_model = OpenAIEmbedding(
+        model=config.embedding.model
+    )
+```
+
+### Structured Output with LlamaIndex
+
+Parsing and cleaning stages use LlamaIndex's `as_structured_llm()` API for reliable JSON extraction:
+
+```python
+# Example: ImageAwareParsingAdapter
+structured_llm = self._llm.as_structured_llm(ParsedPage)
+response = structured_llm.chat(messages)
+parsed_page = response.raw  # Already a validated ParsedPage instance!
+```
+
+**Benefits:**
+- Native JSON mode (OpenAI `response_format` parameter)
+- Automatic Pydantic validation
+- No manual JSON parsing or error-prone prompt engineering
+- Provider-agnostic (works with OpenAI, Anthropic, etc.)
+
+**Trade-off:** Streaming is incompatible with structured outputs. The pipeline defaults to structured outputs for reliability; set `LLM__USE_STREAMING=true` for observability during development.
+
+### Adapter Isolation
+
+All LlamaIndex imports are confined to `src/app/adapters/llama_index/`. Services depend only on ports defined in `application/interfaces.py`, ensuring:
+- Framework independence (can swap LlamaIndex for another orchestrator)
+- Testability (mock ports in tests, no LlamaIndex required)
+- Clean dependency flow (services never import concrete adapters)
+
+---
+
+## Component-Aware Chunking
+
+Traditional fixed-size chunking splits text every N tokens, often breaking tables, images, and semantic units. **Component-aware chunking** respects document structure.
+
+### How It Works
+
+1. **Parsing** produces a `ParsedPage` with ordered components:
+   - Text components (paragraphs, headings, lists)
+   - Table components (with rows, columns, and summaries)
+   - Image components (with descriptions and recognized text)
+
+2. **Chunking** processes components instead of raw text:
+   - **Small components** (< `component_merge_threshold` tokens): Group together until reaching chunk size
+   - **Medium components**: Keep as single chunks
+   - **Large components** (> `max_component_tokens`): Split at sentence boundaries
+
+3. **Metadata attachment**: Each chunk gets:
+   - `component_id`, `component_type`, `component_order`
+   - `component_description` (for images)
+   - `component_summary` (for tables)
+
+### Configuration
+
+```python
+# config.py or environment variables
+CHUNKING__STRATEGY = "component"  # or "hybrid" or "fixed"
+CHUNKING__COMPONENT_MERGE_THRESHOLD = 100  # Min tokens to merge
+CHUNKING__MAX_COMPONENT_TOKENS = 500  # Max before splitting
+```
+
+### Benefits for RAG
+
+1. **Semantic boundaries**: Tables and images aren't fragmented
+2. **Type filtering**: Retrieve only table chunks or only text chunks
+3. **Better context**: Each chunk knows its role (table vs paragraph vs image)
+4. **Improved relevance**: Search "show me all tables about X" works naturally
+
+---
+
+## Contextualized Retrieval
+
+Following [Anthropic's contextual retrieval pattern](https://www.anthropic.com/news/contextual-retrieval), the pipeline enriches chunks with hierarchical context before embedding.
+
+### The Problem
+
+Standard RAG embeds raw chunk text: `"Propeller pitch: 24 degrees"`. This chunk loses context (which document? which page? which section?). Retrieval struggles with ambiguous queries.
+
+### The Solution
+
+**Contextualized text** prepends metadata before embedding:
+
+```
+[Document: Aircraft_Manual.pdf | Page: 12 | Section: Propulsion | Type: table]
+
+Propeller pitch: 24 degrees
+```
+
+The original `cleaned_text` is preserved for generation (avoid hallucinated context in responses).
+
+### Implementation
+
+1. **Parsing** extracts page summaries and section headings
+2. **Enrichment** generates document summary from page summaries
+3. **Enrichment** creates contextualized text per chunk:
+
+```python
+# EnrichmentService._enrich_chunk_with_context()
+context_prefix = f"[Document: {doc_title} | Page: {page_num} | Section: {section} | Type: {component_type}]"
+chunk.contextualized_text = f"{context_prefix}\n\n{chunk.cleaned_text}"
+```
+
+4. **Vectorization** embeds `contextualized_text` (not `cleaned_text`)
+
+### Benefits
+
+- **Query disambiguation**: "What's the pitch?" now retrieves chunks with document/section context
+- **Better ranking**: Embeddings capture both content AND position in document
+- **Multi-document corpus**: Context helps distinguish identical text from different sources
+
+---
+
+## Prompt Management
+
+All LLM prompts are stored as markdown files under `docs/prompts/` and loaded at runtime by adapters.
+
+### Prompt Structure
+
+```
+docs/prompts/
+├── parsing/
+│   ├── system.md    # Parsing instructions (how to extract components)
+│   └── user.md      # Output schema and examples
+├── cleaning/
+│   ├── system.md    # Cleaning rules and review criteria
+│   └── user.md      # Input format explanation
+└── summarization/
+    └── system.md    # Summarization style and length
+```
+
+### How Prompts Are Loaded
+
+```python
+# Example: ImageAwareParsingAdapter
+from src.app.prompts.loader import load_prompt
+
+class ImageAwareParsingAdapter:
+    def __init__(self, llm, vision_llm, prompt_settings):
+        self._system_prompt = load_prompt(prompt_settings.parsing_system_path)
+        self._user_prompt = load_prompt(prompt_settings.parsing_user_path)
+```
+
+The `PromptLoader` utility reads markdown files and handles:
+- Path resolution (relative to repo root)
+- Template variable substitution (if needed in future)
+- Hot-reload during development (restart server to apply changes)
+
+### Tuning Prompts
+
+1. **Edit prompt file**: Modify `docs/prompts/parsing/system.md`
+2. **Restart server**: Prompts are loaded at startup
+3. **Test via dashboard**: Upload document and inspect results
+4. **Iterate**: Adjust prompts based on output quality
+
+**See [`docs/prompts/README.md`](prompts/README.md) for detailed tuning guide with before/after examples.**
+
+### Prompt Versioning
+
+Prompts are tracked in git alongside code. Each prompt change creates a commit, enabling:
+- **A/B testing**: Compare output quality across prompt versions
+- **Rollback**: Revert to previous prompts if quality degrades
+- **Traceability**: Link document processing runs to prompt versions
+
+Future: Integrate with Langfuse prompt management for UI-based editing and automatic version tracking.
 
 ---
 

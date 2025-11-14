@@ -111,4 +111,5 @@ What’s still missing (highest priority first):
 - `src/app/parsing/schemas.py`
 - `src/app/config.py`
 - `docs/prompts/parsing/*`
-- `docs/LlamaIndex_Integration_Plan.md`
+- `docs/ARCHITECTURE.md` § "LlamaIndex Integration"
+- `docs/prompts/README.md`

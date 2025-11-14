@@ -21,7 +21,11 @@ IN:  Ingested document + file bytes
 OUT: Document with pages[], status="parsed"
      + page.text (raw text from pdfplumber)
      + document.metadata.parsed_pages (structured components from vision LLM)
-     + document.metadata.pixmap_assets (PNG images of pages)
+       - Each ParsedPage includes:
+         * components[] (text, tables, images with metadata)
+         * table_summary (for each table component)
+         * page_summary (high-level page overview)
+     + document.metadata.pixmap_assets (PNG images of pages at 300 DPI)
 ```
 
 ### 3. Cleaning
@@ -39,23 +43,42 @@ IN:  Cleaned document with pages
 OUT: Document with page.chunks[], status="chunked"
      + chunk.text (raw chunk slice)
      + chunk.cleaned_text (cleaned chunk slice)
+     + chunk.metadata.component_type (text/table/image)
+     + chunk.metadata.component_id (links to parsed component)
+     + chunk.metadata.component_summary (for tables)
+     + chunk.metadata.component_description (for images)
      + chunk.metadata.extra.cleaning (attached from stage 3)
+     
+Strategy: component (default) | hybrid | fixed
+- component: Preserves table/image boundaries, groups small components
+- hybrid: Mix of component-aware and fixed-size
+- fixed: Legacy overlapping windows
 ```
 
 ### 5. Enrichment
 ```
 IN:  Chunked document
 OUT: Document with chunk summaries + document summary, status="enriched"
-     + chunk.metadata.summary (per-chunk summary)
-     + document.summary (concatenation of chunk summaries, truncated to 280 chars)
+     + chunk.metadata.summary (LLM-generated 2-3 sentence summary)
+     + chunk.contextualized_text (with hierarchical context prefix)
+       Format: "[Document: X | Page: Y | Section: Z | Type: T]\n\nchunk_text"
+     + chunk.metadata.document_title
+     + chunk.metadata.document_summary (LLM-generated from page summaries)
+     + chunk.metadata.page_summary
+     + chunk.metadata.section_heading (extracted from parsed components)
+     + document.summary (LLM-generated 3-4 sentence overview from page summaries)
 ```
 
 ### 6. Vectorization
 ```
 IN:  Enriched document
 OUT: Document with vectors, status="vectorized"
-     + chunk.metadata.extra.vector (embedding vector as list of floats)
+     + chunk.metadata.extra.vector (embedding of contextualized_text, not raw text)
+     + chunk.metadata.extra.used_contextualized_text (true/false flag)
      + document.metadata.vector_samples (sample vectors for debugging)
+     + document.metadata.vector_dimension (e.g., 1536 for OpenAI)
+     
+Note: Embeds contextualized_text for better retrieval, preserves cleaned_text for generation
 ```
 
 ---
@@ -93,13 +116,21 @@ OUT: Document with vectors, status="vectorized"
 - **Output**: `CleanedPage` (segments with needs_review flags)
 - **Stored in**: `document.metadata.cleaning_metadata_by_page[page_num].llm_segments`
 
-### Enrichment (Text LLM, optional)
-- **Adapter**: `LLMSummaryAdapter` (not yet implemented)
+### Enrichment (Text LLM)
+- **Adapter**: `LlamaIndexSummaryAdapter` ✅ Implemented
 - **Prompts**: `docs/prompts/summarization/system.md`
-- **Input**: Chunk text (cleaned or raw)
-- **Output**: 2-sentence summary string
-- **Stored in**: `chunk.metadata.summary`
-- **Current fallback**: Simple truncation (`text[:120]`)
+- **Input**: 
+  - Page summaries (for document summary)
+  - Chunk text + hierarchical context (for chunk summary)
+  - Chunk text + context (for contextualized text generation)
+- **Output**: 
+  - Document summary (3-4 sentences from page summaries)
+  - Chunk summary (2-3 sentences)
+  - Contextualized text with context prefix
+- **Stored in**: 
+  - `document.summary`
+  - `chunk.metadata.summary`
+  - `chunk.contextualized_text`
 
 ---
 
@@ -205,6 +236,89 @@ OUT: Document with vectors, status="vectorized"
 
 ---
 
+## Component-Aware Chunking Strategies
+
+### When to Use Each Strategy
+
+| Strategy | Best For | Pros | Cons |
+|----------|----------|------|------|
+| `component` (default) | Technical docs with tables/diagrams | Preserves structure, semantic boundaries | May create uneven chunk sizes |
+| `hybrid` | Mixed content documents | Balance of structure and consistency | More complex configuration |
+| `fixed` | Plain text documents | Consistent chunk sizes | May break tables/code blocks |
+
+### Component Strategy Details
+
+**How it works:**
+
+1. **Small components** (< 100 tokens): Group together
+   - Example: Short paragraphs merged into single chunk
+   
+2. **Medium components** (100-500 tokens): Keep as-is
+   - Example: One table = one chunk
+   
+3. **Large components** (> 500 tokens): Split at sentence boundaries
+   - Example: Long section split into multiple chunks
+
+**Configuration:**
+
+```bash
+CHUNKING__STRATEGY=component
+CHUNKING__COMPONENT_MERGE_THRESHOLD=100  # Min tokens to merge
+CHUNKING__MAX_COMPONENT_TOKENS=500      # Max before splitting
+```
+
+**Metadata attached to each chunk:**
+
+- `component_type`: "text", "table", or "image"
+- `component_id`: UUID linking to original parsed component
+- `component_summary`: Table summary (for table chunks)
+- `component_description`: Image description (for image chunks)
+- `component_order`: Position in original page
+
+---
+
+## Contextualized Text Format
+
+Following Anthropic's contextual retrieval pattern, chunks are enriched with hierarchical context before embedding.
+
+### Structure
+
+```
+[Document: {document_title} | Page: {page_num} | Section: {section_heading} | Type: {component_type}]
+
+{chunk.cleaned_text}
+```
+
+### Example
+
+```
+[Document: Aircraft_Manual.pdf | Page: 12 | Section: Propulsion System | Type: table]
+
+Propeller Specifications:
+- Diameter: 72 inches
+- Pitch: 24 degrees
+- Material: Carbon composite
+```
+
+### Why This Matters
+
+**Without context:**
+- Embedding just "Propeller pitch: 24 degrees" loses document context
+- Query "What's the propeller pitch?" may retrieve wrong document
+
+**With context:**
+- Embedding includes document, page, and section info
+- Better disambiguation across multi-document corpus
+- Improved ranking for context-aware queries
+
+### Storage
+
+- `chunk.contextualized_text`: Used for embedding (retrieval)
+- `chunk.cleaned_text`: Used for generation (avoid hallucinated context)
+- Both preserved in `document.json`
+
+---
+
 ## Common Questions
 
 ### Q: Why do I see only one chunk per page?
@@ -237,16 +351,25 @@ for page_num, meta in document.metadata["cleaning_metadata_by_page"].items():
         print(f"Page {page_num}, Segment {seg['segment_id']}: {seg['rationale']}")
 ```
 
-### Q: Why is the document summary inaccurate/partial?
-**A**: It's a simple concatenation of chunk summaries, truncated to 280 chars. If the first chunk is long, you only see content from page 1. This is a known issue (see TODO #1).
+### Q: Why is the document summary different from chunk summaries?
+**A**: Document summary is LLM-generated from all page summaries (not chunk summaries). This ensures it captures content from all pages, not just the first page.
 
 ### Q: How do I change what gets flagged for review?
 **A**: Edit `docs/prompts/cleaning/system.md` to add/remove criteria for flagging segments.
 
-### Q: Can I use a different chunk size?
-**A**: Yes, either:
-- Set in config: `ChunkingService(chunk_size=100, chunk_overlap=20)`
-- Or pass at runtime: `chunking_service.chunk(document, size=100, overlap=20)`
+### Q: Can I change the chunking strategy?
+**A**: Yes, set the strategy in config or environment:
+```bash
+CHUNKING__STRATEGY=component  # or "hybrid" or "fixed"
+CHUNKING__COMPONENT_MERGE_THRESHOLD=100
+CHUNKING__MAX_COMPONENT_TOKENS=500
+```
+For fixed-size chunking:
+```bash
+CHUNKING__STRATEGY=fixed
+CHUNKING__CHUNK_SIZE=512
+CHUNKING__CHUNK_OVERLAP=50
+```
 
 ---
 

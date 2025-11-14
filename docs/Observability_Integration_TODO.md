@@ -1,266 +1,38 @@
-# RAG Pipeline: Complete TODO List
+# RAG Pipeline: Observability Integration TODO
 
-This document provides a prioritized TODO list for the RAG pipeline. Based on feedback, we're now prioritizing **pipeline architectural improvements** before observability integration.
-
----
-
-## ⚠️ UPDATED PRIORITY: Pipeline Improvements First
-
-**New Order**:
-1. **Phase A: Pipeline Improvements** (3-4 weeks) - Implement contextual retrieval, component-aware chunking, hierarchical RAG
-2. **Phase B: Observability Integration** (1-2 weeks) - Add Langfuse and Ragas once pipeline is optimized
-
-**Rationale**: Need clean architecture with component metadata before adding observability. This ensures we're tracing the *right* pipeline, not a flawed one.
+This document outlines the remaining work to integrate comprehensive observability, tracing, and evaluation into the RAG pipeline.
 
 ---
 
-## Phase A: Pipeline Improvements (PRIORITY 1) - Next 3-4 Weeks
+## ✅ Completed: Pipeline Improvements (Phase A)
 
-**See `Pipeline_Improvements_Implementation_Plan.md` for detailed specifications.**
+**All Phase A items have been completed on the `llama-index` branch.**
 
-### Week 1: Schema and Parsing Enhancements
+See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Implementation_Status.md) for full implementation details.
 
-#### A1. Update Data Schemas [2-3 days]
-- [ ] Add `table_summary` field to `ParsedTableComponent`
-- [ ] Add component context fields to `Metadata` (component_id, component_type, component_description, component_summary)
-- [ ] Add hierarchical context fields to `Metadata` (document_title, document_summary, page_summary, section_heading)
-- [ ] Add `contextualized_text` field to `Chunk`
-- [ ] Update domain models with helper methods
-- [ ] Run tests to ensure backward compatibility
+### Key Achievements
 
-**Files**: `src/app/parsing/schemas.py`, `src/app/domain/models.py`
-
----
-
-#### A2. Add Table Summarization to Parsing [2-3 days]
-- [ ] Update parsing prompts to request table summaries
-  - Edit `docs/prompts/parsing/system.md`
-  - Edit `docs/prompts/parsing/user.md`
-  - Add examples of good table summaries
-- [ ] Verify `ImageAwareParsingAdapter` extracts table summaries
-- [ ] Test on documents with tables (verify summary quality)
-- [ ] Add unit tests for table summarization
-
-**Files**: `docs/prompts/parsing/*.md`, `src/app/adapters/llama_index/parsing_adapter.py`
+✅ **Component-Aware Chunking**: Tables, images, and text blocks are preserved as semantic units  
+✅ **Table Summarization**: LLM-generated summaries for all table components  
+✅ **Page Summarization**: LLM-generated summaries for each page  
+✅ **Document-Level Summarization**: Generated from page summaries (not just first page)  
+✅ **Contextualized Retrieval**: Anthropic's contextual retrieval pattern implemented  
+✅ **Hierarchical Context**: Document → Page → Section → Component metadata attached to chunks  
+✅ **LLM Integration**: Vision parsing, text cleaning, summarization via LlamaIndex adapters  
+✅ **Structured Outputs**: Using `as_structured_llm()` for reliable JSON extraction  
 
 ---
 
-#### A3. Add Page-Level Summaries [1-2 days]
-- [ ] Update parsing prompts to request `page_summary`
-- [ ] Verify parsing adapter extracts page summaries
-- [ ] Test on multi-page documents
-- [ ] Validate summary quality (should describe page role in document)
+## 🎯 Current Priority: Observability Integration (Phase B)
 
-**Files**: `docs/prompts/parsing/user.md`
+**Now that the pipeline architecture is solid, we can add comprehensive observability.**
 
----
-
-### Week 2: Cleaning and Chunking Overhaul
-
-#### A4. Add Visual Context to Cleaning [2-3 days]
-- [ ] Add `pixmap_path` parameter to `CleaningAdapter.clean_page()`
-- [ ] Implement vision-based cleaning method
-- [ ] Update cleaning prompts for visual context
-  - Edit `docs/prompts/cleaning/system.md`
-  - Add instructions for using visual layout
-- [ ] Update `CleaningService` to pass pixmaps
-- [ ] Test with/without vision (compare quality)
-- [ ] Make vision optional via config
-
-**Files**: `src/app/adapters/llama_index/cleaning_adapter.py`, `src/app/services/cleaning_service.py`, `docs/prompts/cleaning/system.md`
+**Timeline**: 1-2 weeks  
+**Goal**: Trace all LLM calls, measure quality, enable HITL workflows
 
 ---
 
-#### A5. Implement Component-Based Chunking [5-7 days]
-- [ ] Create new chunking algorithm:
-  - Iterate through `parsed_pages[N].components`
-  - Group small components (< threshold tokens)
-  - Split large components (> max tokens) at sentence boundaries
-  - Create one chunk per component (or component group)
-- [ ] Extract cleaned text for component chunks
-  - Map components to cleaned_text positions
-  - Extract corresponding slices
-- [ ] Attach component metadata to chunks
-  - Set `component_id`, `component_type`, `component_order`
-  - Add `component_description` for images
-  - Add `component_summary` for tables
-- [ ] Add configuration for chunking strategy ("component", "hybrid", "fixed")
-- [ ] Test on documents with mixed content (text, tables, images)
-- [ ] Compare with fixed-size chunking (manual QA)
-- [ ] Write comprehensive unit tests
-
-**Files**: `src/app/services/chunking_service.py`, `src/app/config.py`
-
-**Critical**: This is the biggest change. Allocate extra time for testing and iteration.
-
----
-
-### Week 3: Enrichment and Vectorization
-
-#### A6. Implement Document-Level Summarization [2-3 days]
-- [ ] Create `_generate_document_summary()` method in `EnrichmentService`
-  - Collect all page summaries
-  - Pass to LLM for synthesis
-  - Generate 3-4 sentence comprehensive summary
-- [ ] Update `enrich()` to call document summarization first
-- [ ] Test document summary quality on multi-page docs
-- [ ] Ensure summary covers all pages (not just first page)
-
-**Files**: `src/app/services/enrichment_service.py`
-
----
-
-#### A7. Add Hierarchical Context to Chunk Enrichment [2-3 days]
-- [ ] Extract section headings from parsed pages
-- [ ] Pass document summary, page summary, section heading to chunk enrichment
-- [ ] Update chunk summarization to use hierarchical context
-- [ ] Generate contextualized text with context prefix:
-  - Format: `[Document: X | Page: Y | Section: Z | Type: table]`
-  - Prepend to chunk text before embedding
-- [ ] Store original text separately for generation
-- [ ] Test contextualized text format and quality
-
-**Files**: `src/app/services/enrichment_service.py`
-
----
-
-#### A8. Create LLM Summary Adapter [1 day]
-- [ ] Create `LLMSummaryAdapter` implementing `SummaryGenerator`
-- [ ] Load summarization prompt from `docs/prompts/summarization/system.md`
-- [ ] Handle short text (< 50 chars) - return as-is
-- [ ] Test summary generation quality
-- [ ] Wire into `EnrichmentService` via container
-
-**Files**: `src/app/adapters/llama_index/summary_adapter.py` (new), `src/app/container.py`
-
----
-
-#### A9. Update Vectorization for Contextual Retrieval [1-2 days]
-- [ ] Modify `VectorService` to embed `contextualized_text` (not `cleaned_text`)
-- [ ] Ensure metadata fields are preserved in vector storage
-  - `component_type`, `component_description`, `component_summary`
-  - `document_title`, `document_summary`, `page_summary`
-- [ ] Store both contextualized_text (embedded) and cleaned_text (for generation)
-- [ ] Test vector generation with new metadata
-
-**Files**: `src/app/services/vector_service.py`
-
----
-
-### Week 4: Integration and Testing
-
-#### A10. Update Container and Configuration [1-2 days]
-- [ ] Wire `LLMSummaryAdapter` into container
-- [ ] Add configuration settings:
-  - `CHUNKING_STRATEGY` (component/hybrid/fixed)
-  - `COMPONENT_MERGE_THRESHOLD` (default 100)
-  - `MAX_COMPONENT_TOKENS` (default 500)
-  - `USE_VISION_CLEANING` (default True)
-  - `USE_LLM_SUMMARIZATION` (default True)
-- [ ] Update `CleaningService` instantiation (vision parameter)
-- [ ] Update `ChunkingService` instantiation (strategy parameters)
-- [ ] Update `EnrichmentService` instantiation (summary generator)
-
-**Files**: `src/app/container.py`, `src/app/config.py`
-
----
-
-#### A11. Comprehensive Testing [3-4 days]
-- [ ] **Unit Tests**:
-  - Component chunking preserves tables
-  - Component chunking merges small components
-  - Component chunking splits large components
-  - Component metadata preserved in chunks
-  - Cleaned text extraction for components
-  - Table summarization
-  - Contextualized text generation
-- [ ] **Integration Tests**:
-  - Full pipeline with component chunking
-  - Table summaries end-to-end
-  - Document summary quality
-  - Metadata preservation through all stages
-- [ ] **Manual QA**:
-  - Test on blueprint documents (tables, images, diagrams)
-  - Test on manuals (mixed content)
-  - Test on multi-section documents (headings)
-  - Verify chunk boundaries make sense
-  - Inspect contextualized text format
-  - Check metadata completeness in final document.json
-
-**Files**: `tests/test_chunking_component_aware.py` (new), `tests/test_end_to_end_hierarchical.py` (new)
-
----
-
-#### A12. Documentation and Knowledge Transfer [1 day]
-- [ ] Update README with new pipeline architecture
-- [ ] Document chunking strategies and when to use each
-- [ ] Document component metadata fields and their purpose
-- [ ] Add examples of contextualized text
-- [ ] Create troubleshooting guide
-- [ ] Demo new pipeline to team
-
-**Files**: `README.md`, `docs/ARCHITECTURE.md`
-
----
-
-## Phase B: Observability Integration (PRIORITY 2) - After Pipeline Improvements
-
-**Note**: Start this phase only after Phase A is complete and tested.
-
-### Week 5: Immediate Actions (High Priority)
-
-### 1. Fix Document Summary Generation [2-4 hours]
-
-**Problem**: Document summary shows only first page content (280 char truncation of concatenated chunk summaries)
-
-**Tasks**:
-- [ ] Create document-level summarization method in `EnrichmentService`
-- [ ] Modify enrichment to collect page summaries from `parsed_pages` metadata
-- [ ] Update summarization prompt for document-level synthesis
-- [ ] Test on sample documents and verify summary quality
-
-**Files**:
-- `src/app/services/enrichment_service.py`
-- `docs/prompts/summarization/system.md`
-
----
-
-### 2. Enable LLM Summarization for Chunks [1-2 hours]
-
-**Problem**: Chunks use simple truncation instead of LLM-generated summaries
-
-**Tasks**:
-- [ ] Create `LLMSummaryAdapter` implementing `SummaryGenerator` interface
-- [ ] Load and use summarization prompt from `docs/prompts/summarization/system.md`
-- [ ] Wire adapter into `EnrichmentService` via `container.py`
-- [ ] Test chunk summaries are now 2-sentence LLM outputs
-
-**Files**:
-- `src/app/adapters/llama_index/summary_adapter.py` (new)
-- `src/app/container.py`
-
----
-
-### 3. Add Page-Level Summaries to Parser [2-3 hours]
-
-**Problem**: Parser doesn't provide high-level overview of page content
-
-**Tasks**:
-- [ ] Add `page_summary: str | None` field to `ParsedPage` schema
-- [ ] Update parsing user prompt to include `page_summary` in output schema
-- [ ] Modify enrichment to use page summaries for document summary
-- [ ] Test parser produces page summaries from vision LLM
-
-**Files**:
-- `src/app/parsing/schemas.py`
-- `docs/prompts/parsing/user.md`
-- `src/app/services/enrichment_service.py`
-
----
-
-## Short-term Enhancements (1-2 weeks)
-
-### 4. Integrate Langfuse for LLM Tracing [4-6 hours]
+## Priority 1: LLM Tracing with Langfuse [4-6 hours]
 
 **Benefits**:
 - Full visibility into LLM calls (prompts, responses, tokens, costs)
@@ -295,7 +67,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 5. Build Human-in-the-Loop Review UI [1 week]
+## Priority 2: Human-in-the-Loop Review UI [1 week]
 
 **Benefits**:
 - Surface segments flagged by cleaning LLM
@@ -337,7 +109,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 6. Tune Cleaning Prompts for Better Review Flags [2-3 hours]
+## Priority 3: Tune Cleaning Prompts for Better Review Flags [2-3 hours]
 
 **Benefits**:
 - More accurate flagging of segments that actually need review
@@ -370,9 +142,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-## Medium-term Improvements (1 month)
-
-### 7. Integrate Ragas for Quality Evaluation [1-2 weeks]
+## Priority 4: Integrate Ragas for Quality Evaluation [1-2 weeks]
 
 **Benefits**:
 - Quantitative quality metrics (faithfulness, relevance, precision, recall)
@@ -415,7 +185,9 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 8. Implement Semantic Chunking [1 week]
+## Future Enhancement: Semantic Chunking Experiments [1 week]
+
+**Note**: Component-aware chunking already provides semantic boundaries. This would be experimental/comparative work.
 
 **Benefits**:
 - Better chunk boundaries based on content structure
@@ -444,7 +216,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 9. Add Query-time Observability [1 week]
+## Future Enhancement: Query-time Observability [1 week]
 
 **Benefits**:
 - Trace user queries end-to-end (retrieval → ranking → generation)
@@ -487,7 +259,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ## Long-term Vision (3-6 months)
 
-### 10. Prompt Version Management
+### Prompt Version Management
 
 - [ ] Migrate prompts from files to Langfuse prompt management
 - [ ] Tag traces with prompt version
@@ -496,7 +268,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 11. Continuous Quality Monitoring
+### Continuous Quality Monitoring
 
 - [ ] Run Ragas evaluation on sample of production queries daily
 - [ ] Build quality dashboard showing trends over time
@@ -505,7 +277,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 12. Fine-tuning Pipeline
+### Fine-tuning Pipeline
 
 - [ ] Collect human corrections from HITL review
 - [ ] Build fine-tuning dataset from corrections
@@ -515,7 +287,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-### 13. Multi-tenant Observability
+### Multi-tenant Observability
 
 - [ ] Add user/tenant ID to all traces
 - [ ] Per-tenant cost tracking

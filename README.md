@@ -11,11 +11,11 @@ The pipeline executes the following stages in order. Each service returns a new 
 | Stage | Service (`src/app/services`) | Resulting `Document.status` | Key Outputs |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | `ingested` | Copies raw bytes to `artifacts/ingestion/<document_id>/`, records checksum + content metadata |
-| Parsing | `ParsingService` | `parsed` | Uses `DocumentParser` adapters (pdfplumber-backed PDF parser plus DOCX/PPT stubs) to create `Page` models, falling back to placeholder text if parsing fails |
-| Cleaning | `CleaningService` | `cleaned` | Normalizes whitespace, records `cleaning_report` plus `cleaning_metadata_by_page` so chunking can attach cleaning metadata |
-| Chunking | `ChunkingService` | `chunked` | Slices each page into overlapping `Chunk` objects, keeps raw text + cleaned text slices, attaches cleaning metadata |
-| Enrichment | `EnrichmentService` | `enriched` | Invokes the injected `SummaryGenerator` (default `LLMSummaryAdapter` stub) to title/summary chunks and stitch a lightweight document summary |
-| Vectorization | `VectorService` | `vectorized` | Generates deterministic placeholder vectors per chunk, stores sample vectors and vector dimension on document metadata |
+| Parsing | `ParsingService` | `parsed` | Uses vision LLM via `ImageAwareParsingAdapter` to extract structured content from 300 DPI page images. Produces `ParsedPage` components (text, tables, images) with table summaries and page summaries. Stores pixmaps under `artifacts/pixmaps/` |
+| Cleaning | `CleaningService` | `cleaned` | Uses `CleaningAdapter` (LlamaIndex text LLM) to normalize parsed content, flag segments for review, and generate cleaned text per page stored in `cleaning_metadata_by_page` |
+| Chunking | `ChunkingService` | `chunked` | Supports three strategies: `component` (preserves table/image boundaries), `hybrid`, or `fixed` (legacy overlap). Attaches component metadata (type, summary, description) to each chunk |
+| Enrichment | `EnrichmentService` | `enriched` | Uses `LlamaIndexSummaryAdapter` to generate document-level summary from page summaries, then creates contextualized text for each chunk following Anthropic's contextual retrieval pattern |
+| Vectorization | `VectorService` | `vectorized` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`, preserving both context-enriched and original text for retrieval and generation |
 
 `PipelineRunner` coordinates these services, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
 
@@ -70,8 +70,14 @@ RAG_pipeline_worker/
 │   └── runs/
 ├── docs/
 │   ├── ARCHITECTURE.md
-│   ├── Parsing_Service_Implementation_Guide.md
+│   ├── Pipeline_Quick_Reference.md
+│   ├── Pipeline_Data_Flow_and_Observability_Report.md
 │   ├── LLM_Integration_Implementation_Guide.md
+│   ├── Observability_Integration_TODO.md
+│   ├── prompts/                    # LLM prompt templates
+│   │   ├── parsing/
+│   │   ├── cleaning/
+│   │   └── summarization/
 │   └── research/
 │       └── README.md
 ├── src/
@@ -81,7 +87,9 @@ RAG_pipeline_worker/
 │       │   ├── routers.py              # REST API (upload/list/get)
 │       │   ├── task_scheduler.py       # BackgroundTasks adapter
 │       │   └── templates/
-│       ├── adapters/                   # Parser + LLM summary stubs
+│       ├── adapters/                   # LlamaIndex-based LLM adapters
+│       │   ├── llama_index/            # Vision parsing, cleaning, summarization, embeddings
+│       │   └── legacy parsers/         # PDF/DOCX/PPT fallback parsers
 │       ├── application/
 │       │   ├── interfaces.py           # Ports (DocumentParser, SummaryGenerator, ObservabilityRecorder, TaskScheduler)
 │       │   └── use_cases/              # Upload/List/Get use cases
@@ -113,7 +121,14 @@ RAG_pipeline_worker/
 - **Domain models (`src/app/domain`)** – `Document`, `Page`, `Chunk`, and `Metadata` capture every transformation applied to an upload. Helper methods like `add_page` and `add_chunk` always return copies, preserving immutability.
 - **Application layer (`src/app/application`)** – Protocols in `interfaces.py` define ports for document parsers, summary generators, schedulers, and observability recorders. Use cases (Upload/List/Get) translate HTTP concerns into pipeline invocations.
 - **Services (`src/app/services`)** – Each class encapsulates one stage of the pipeline and depends strictly on domain models + ports. `PipelineRunner` strings the stages together, and `PipelineRunManager` handles persistence plus async execution via the injected `TaskScheduler`.
-- **Adapters (`src/app/adapters`)** – Contain infrastructure-specific code: `PdfParserAdapter` wraps `pdfplumber`, the DOCX/PPT parsers are still placeholders, and `LLMSummaryAdapter` is a lightweight stub that truncates text. Swapping in production-ready adapters happens without changing services.
+- **Adapters (`src/app/adapters`)** – Contain infrastructure-specific code wrapped around LlamaIndex:
+  - `ImageAwareParsingAdapter` wraps OpenAI vision LLM for multi-modal parsing with structured output
+  - `CleaningAdapter` uses LlamaIndex LLM for text normalization and segment flagging
+  - `LlamaIndexSummaryAdapter` generates LLM-based summaries for chunks and documents
+  - `LlamaIndexEmbeddingAdapter` creates embeddings via LlamaIndex settings
+  - Legacy parsers (`PdfParserAdapter`, `DocxParserAdapter`, `PptParserAdapter`) remain for fallback scenarios
+  
+  All LlamaIndex imports stay confined to adapters, keeping services framework-agnostic.
 - **Persistence (`src/app/persistence`)** – Defines repository ports plus filesystem-backed adapters:
   - `FileSystemIngestionRepository` stores raw uploads;
   - `FileSystemDocumentRepository` persists processed `Document` snapshots;
@@ -128,9 +143,15 @@ RAG_pipeline_worker/
 - `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
 - `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
 - `GET /documents/{doc_id}` – Fetches a single processed document.
-- `GET /dashboard` – Renders the manual test harness. Uploads kick off `PipelineRunManager.run_async`, and the UI polls `/dashboard/runs/{run_id}/fragment` to stream stage details, chunk previews, metrics, and duration data. File previews are served from `static/uploads/`.
+- `GET /dashboard` – Renders the manual test harness with real-time pipeline monitoring:
+  - Upload documents and track processing through all stages
+  - Background execution via `PipelineRunManager.run_async` with live polling
+  - View parsed components (tables, images, text) with summaries
+  - Inspect chunk metadata including component type and contextualized text
+  - Track stage durations and component-aware chunking statistics
+  - Preview document files served from `static/uploads/`
 
-The dashboard uses only server-side templates (Jinja2) plus a small amount of vanilla JS to refresh runs. No external frontend build tooling is required.
+The dashboard uses only server-side templates (Jinja2) plus vanilla JS for auto-refreshing. No frontend build tooling required.
 
 ---
 
@@ -141,24 +162,47 @@ All persistence paths default to the `artifacts/` directory inside the repo but 
 - `RUN_ARTIFACTS_DIR` → timeline JSON for each pipeline run (consumed by the dashboard)
 - `INGESTION_STORAGE_DIR` → immutable upload copies + checksums
 - `DOCUMENT_STORAGE_DIR` → processed document snapshots read by the API/use cases
+- `PIXMAP_STORAGE_DIR` → 300 DPI page images (`artifacts/pixmaps/<document_id>/page_N.png`)
 - `PIPELINE_STAGE_LATENCY` → optional float (seconds) used to simulate slow stages and make dashboard updates easier to see
 
-The dashboard stores uploaded files under `static/uploads/` for inline previews. Clean up the `artifacts/` and `static/uploads/` directories periodically during local development if disk space becomes an issue.
+The dashboard stores uploaded files under `static/uploads/` for inline previews. Pixmaps are generated during parsing for vision LLM input and stored for traceability. Clean up the `artifacts/` and `static/uploads/` directories periodically during local development if disk space becomes an issue.
 
 ---
 
 ## Configuration
 
-`src/app/config.py` exposes typed configuration models for every integration point (LLM, embeddings, chunking, vector stores, and prompt files). Override values via environment variables or a local `.env` file using Pydantic's nested syntax. Examples:
+`src/app/config.py` exposes typed configuration models for every integration point (LLM, embeddings, chunking, vector stores, and prompt files). Override values via environment variables or a local `.env` file using Pydantic's nested syntax. 
+
+### Key Configuration Options
 
 ```bash
+# LLM Settings
 LLM__PROVIDER=openai
 LLM__MODEL=gpt-4o-mini
-CHUNKING__CHUNK_SIZE=768
+LLM__USE_STRUCTURED_OUTPUTS=true  # Use native JSON mode for reliability
+LLM__USE_STREAMING=false          # Disable for structured outputs
+
+# Chunking Strategy (NEW in llama-index branch)
+CHUNKING__STRATEGY=component           # "component", "hybrid", or "fixed"
+CHUNKING__COMPONENT_MERGE_THRESHOLD=100  # Min tokens to merge small components
+CHUNKING__MAX_COMPONENT_TOKENS=500      # Max tokens before splitting large components
+CHUNKING__CHUNK_SIZE=512               # Used by fixed/hybrid strategies
+CHUNKING__CHUNK_OVERLAP=50
+
+# Pipeline Features
+USE_VISION_CLEANING=false    # Enable vision-based cleaning (optional)
+USE_LLM_SUMMARIZATION=true   # Use LLM for summaries (vs truncation)
+CHUNKING__INCLUDE_IMAGES=true  # Generate 300 DPI pixmaps for parsing
+
+# Vector Store
 VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
 ```
 
-Install the required LlamaIndex extras before running the app (at minimum `pip install llama-index-core llama-index-llms-openai llama-index-embeddings-openai`). The bootstrapper wires these settings into `llama_index.core.Settings` during startup, keeping framework imports confined to the adapters layer.
+**Component-Aware Chunking:** The `component` strategy (default) preserves document structure by keeping tables, images, and text blocks intact. This enables downstream RAG systems to filter by component type and provides better semantic boundaries than fixed-size chunking.
+
+**Structured Outputs:** The parsing and cleaning stages use LlamaIndex's `as_structured_llm()` API with native JSON mode for reliable structured output extraction. Streaming can be enabled for observability at the cost of disabling native structured output.
+
+Install the required LlamaIndex extras before running the app (at minimum `pip install llama-index-core llama-index-llms-openai llama-index-embeddings-openai`). The bootstrapper (`src/app/adapters/llama_index/bootstrap.py`) wires these settings into `llama_index.core.Settings` during startup, keeping framework imports confined to the adapters layer.
 
 ### API Keys & Environment Secrets
 
@@ -181,6 +225,29 @@ In hosted environments (Render, AWS, etc.) define the same variables through you
 ---
 
 ## Getting Started
+
+### Quick Start for New Developers
+
+**Understanding the Pipeline (5 min read):**
+
+1. Read the [Pipeline Quick Reference](docs/Pipeline_Quick_Reference.md) for data flow and storage locations
+2. Review [ARCHITECTURE.md](docs/ARCHITECTURE.md) for hexagonal architecture principles
+3. Check [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) for comprehensive deep dive
+
+**Making Your First Change:**
+
+1. **Modify a prompt**: Edit `docs/prompts/parsing/system.md` to change LLM behavior
+2. **Test via dashboard**: Visit `http://localhost:8000/dashboard` and upload a test document
+3. **Check the output**: Inspect `artifacts/documents/{doc_id}.json` for the results
+
+**Common Tasks:**
+
+- **Add a new pipeline stage**: See `ARCHITECTURE.md` § "When Adding a New Service"
+- **Tune LLM behavior**: See `docs/prompts/README.md` for prompt engineering guide
+- **Debug a parsing issue**: See `Pipeline_Quick_Reference.md` § "Debug Workflow"
+- **Change chunking strategy**: Set `CHUNKING__STRATEGY=component` (or `hybrid`/`fixed`) in `.env`
+
+---
 
 ### Install Dependencies
 
@@ -240,9 +307,27 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 
 ---
 
-## References
+## Documentation
 
-- `docs/ARCHITECTURE.md` – Hexagonal architecture guardrails and dependency flow
-- `docs/Parsing_Service_Implementation_Guide.md` – Deep dive into the parsing stage and parser adapters
-- `docs/LLM_Integration_Implementation_Guide.md` – How the `SummaryGenerator` port enables LLM-backed enrichment
-- `AGENTS.md` – Specification-driven development workflow for research → planning → implementation
+### For New Developers
+- [README](README.md) - Start here for setup and overview (you are here)
+- [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
+- [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
+
+### Deep Dives
+- [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
+- [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
+
+### Implementation Records
+- [Pipeline Improvements Status](docs/Pipeline_Improvements_Implementation_Status.md) - Component-aware chunking and contextual retrieval implementation
+- [Structured Output Summary](docs/Structured_Output_Implementation_Summary.md) - LlamaIndex best practices for reliable JSON extraction
+
+### Next Steps
+- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
+
+### Prompts & Research
+- [Prompts Guide](docs/prompts/README.md) - How to tune LLM behavior across pipeline stages
+- [Research](docs/research/) - LlamaIndex API research and integration patterns
+
+### Agent Workflow
+- [AGENTS.md](AGENTS.md) - Specification-driven development workflow for research → planning → implementation
