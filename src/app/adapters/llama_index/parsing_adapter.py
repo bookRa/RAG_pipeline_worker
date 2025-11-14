@@ -78,13 +78,29 @@ class ImageAwareParsingAdapter(ParsingLLM):
             )
         
         try:
+            # Priority 1: Use structured API (non-streaming) for maximum reliability
+            # This leverages native JSON mode (OpenAI response_format) when available
+            if self._use_structured_outputs and not self._use_streaming:
+                parsed_page = self._parse_with_structured_api(document_id, page_number, pixmap_path)
+                if parsed_page:
+                    self._log_trace(document_id, page_number, pixmap_path, parsed_page)
+                    return parsed_page
+                # If structured API fails, log and fall through to streaming method
+                logger.warning(
+                    "Structured API failed for doc=%s page=%s, trying streaming method as fallback",
+                    document_id,
+                    page_number,
+                )
+            
+            # Priority 2: Use manual schema injection with streaming (for progress logs)
+            # This is used when streaming is enabled or when structured API failed
             if self._use_structured_outputs:
                 parsed_page = self._parse_with_vision_structured(document_id, page_number, pixmap_path)
                 if parsed_page:
                     self._log_trace(document_id, page_number, pixmap_path, parsed_page)
                     return parsed_page
             else:
-                # Fallback to non-structured parsing if disabled
+                # Priority 3: Fallback to non-structured parsing if disabled
                 parsed_page = self._parse_without_structured_llm(document_id, page_number, pixmap_path)
                 if parsed_page:
                     self._log_trace(document_id, page_number, pixmap_path, parsed_page)
@@ -225,6 +241,118 @@ class ImageAwareParsingAdapter(ParsingLLM):
         except Exception as exc:
             logger.warning(
                 "Structured vision LLM parsing failed for doc=%s page=%s: %s",
+                document_id,
+                page_number,
+                exc,
+            )
+        return None
+    
+    def _parse_with_structured_api(
+        self,
+        document_id: str,
+        page_number: int,
+        pixmap_path: str,
+    ) -> ParsedPage | None:
+        """Parse using LlamaIndex as_structured_llm() API with vision.
+        
+        This method leverages native structured output support (e.g., OpenAI JSON mode)
+        instead of manually injecting schema into prompts. This provides more reliable
+        JSON parsing and automatic validation.
+        
+        Args:
+            document_id: Document identifier
+            page_number: Page number to parse
+            pixmap_path: Path to page image (PNG)
+        
+        Returns:
+            ParsedPage if successful, None if parsing fails
+        
+        Note:
+            This method does NOT support streaming. For streaming with progress logs,
+            use _parse_with_vision_structured() instead.
+        """
+        path_obj = Path(pixmap_path) if pixmap_path else None
+        logger.info(
+            "parsing_page_structured_api llm=%s document_id=%s page=%s exists=%s size=%s bytes",
+            self._llm.__class__.__name__,
+            document_id,
+            page_number,
+            path_obj.exists() if path_obj else False,
+            path_obj.stat().st_size if path_obj and path_obj.exists() else None,
+        )
+        
+        try:
+            # Create structured LLM wrapper for ParsedPage schema
+            # This automatically enables native JSON mode (e.g., OpenAI response_format)
+            structured_llm = self._llm.as_structured_llm(ParsedPage)
+            
+            # Build system prompt with context (no need to inject schema manually!)
+            system_prompt_with_context = (
+                f"{self._system_prompt}\n\n"
+                f"Document ID: {document_id}\n"
+                f"Page Number: {page_number}"
+            )
+            
+            # Encode image as base64
+            image_data = encode_image(pixmap_path)
+            
+            # Create messages: system prompt + user message with image
+            messages = [
+                ChatMessage(role="system", content=system_prompt_with_context),
+                ChatMessage(
+                    role="user",
+                    content=[
+                        ImageBlock(image=image_data, image_mimetype="image/png"),
+                    ],
+                ),
+            ]
+            
+            # Call chat() on structured LLM wrapper
+            # This should automatically use native structured output support
+            response = structured_llm.chat(messages)
+            
+            # Extract Pydantic object from response.raw
+            if hasattr(response, "raw") and isinstance(response.raw, ParsedPage):
+                parsed_page = response.raw
+                # Ensure document_id and page_number are correct (LLM might get them wrong)
+                parsed_page = parsed_page.model_copy(
+                    update={
+                        "document_id": document_id,
+                        "page_number": page_number,
+                    }
+                )
+                logger.info(
+                    "✅ Structured API parsing succeeded for doc=%s page=%s (components: %d)",
+                    document_id,
+                    page_number,
+                    len(parsed_page.components),
+                )
+                return parsed_page
+            elif hasattr(response, "text"):
+                # Fallback: try to parse from text (shouldn't happen with structured API)
+                logger.warning(
+                    "Structured API response missing .raw, attempting fallback parse for doc=%s page=%s",
+                    document_id,
+                    page_number,
+                )
+                parsed_page = ParsedPage.model_validate_json(response.text)
+                parsed_page = parsed_page.model_copy(
+                    update={
+                        "document_id": document_id,
+                        "page_number": page_number,
+                    }
+                )
+                return parsed_page
+            else:
+                logger.warning(
+                    "Structured API response has unexpected format for doc=%s page=%s: %s",
+                    document_id,
+                    page_number,
+                    type(response),
+                )
+        except Exception as exc:
+            logger.warning(
+                "Structured API parsing failed for doc=%s page=%s: %s",
                 document_id,
                 page_number,
                 exc,
