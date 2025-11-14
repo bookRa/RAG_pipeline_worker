@@ -36,7 +36,7 @@ client = TestClient(app)
 def test_dashboard_page_loads():
     response = client.get("/dashboard")
     assert response.status_code == 200
-    assert "Manual test harness" in response.text
+    assert "Manual Test Harness" in response.text
 
 
 def test_dashboard_upload_traces_pipeline():
@@ -57,7 +57,7 @@ def test_dashboard_upload_traces_pipeline():
         fragment = client.get(f"/dashboard/runs/{run_id}/fragment")
         assert fragment.status_code == 200
         if 'data-run-status="completed"' in fragment.text:
-            assert "Stage breakdown" in fragment.text
+            assert "Detailed Stage Outputs" in fragment.text
             assert "chunking" in fragment.text
             assert "cleaning" in fragment.text
             assert "vectorization" in fragment.text

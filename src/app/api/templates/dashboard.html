@@ -2,12 +2,55 @@
 {% block title %}Pipeline Dashboard{% endblock %}
 
 {% block content %}
-<section class="layout">
-  <div class="panel upload-panel">
+<section style="display:flex;flex-direction:column;gap:20px;width:100%;">
+  <!-- Collapsible Recent Runs Dropdown -->
+  {% if runs %}
+  <div class="panel" style="padding:16px 20px;">
+    <div 
+      id="recent-runs-toggle" 
+      style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;"
+      onclick="DashboardHistory.toggle()"
+    >
+      <div style="display:flex;align-items:center;gap:12px;">
+        <h3 style="margin:0;font-size:1rem;">Recent Runs ({{ runs|length }})</h3>
+        <span style="font-size:0.85rem;color:#94a3b8;">Click to expand/collapse</span>
+      </div>
+      <span id="recent-runs-arrow" style="font-size:1.2rem;color:#94a3b8;transition:transform 0.2s;">▼</span>
+    </div>
+    <div id="recent-runs-list" style="display:none;margin-top:16px;max-height:200px;overflow-y:auto;">
+      <ol style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;">
+        {% for run in runs %}
+          <li 
+            class="history-card-clickable" 
+            data-run-id="{{ run.id }}"
+            onclick="DashboardHistory.loadRun('{{ run.id }}')"
+            style="cursor:pointer;transition:all 0.2s;"
+          >
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-weight:600;color:#e0f2fe;">{{ run.filename }}</div>
+                <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px;">
+                  Pages: {{ run.page_count }} · Status: 
+                  <span style="
+                    color:{% if run.status == 'completed' %}#34d399{% elif run.status == 'failed' %}#f87171{% else %}#fbbf24{% endif %};
+                  ">{{ run.status }}</span>
+                </div>
+              </div>
+              <div style="font-size:0.75rem;color:#64748b;">{{ run.created_at.strftime('%H:%M:%S') }}</div>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Main Pipeline Panel - Full Width -->
+  <div class="panel" style="width:100%;">
     <div>
-      <h2>Manual test harness</h2>
+      <h2>Manual Test Harness</h2>
       <p style="color:#94a3b8;font-size:0.95rem;">
-        Upload <code>tests/test_document.pdf</code> or any supported file to trace each pipeline stage in one place.
+        Upload a document to trace its journey through the RAG pipeline: ingestion → parsing → cleaning → chunking → enrichment → vectorization
       </p>
     </div>
     <form
@@ -16,7 +59,7 @@
       method="post"
       enctype="multipart/form-data"
       class="form"
-      style="display:flex;flex-direction:column;gap:16px;"
+      style="display:flex;flex-direction:column;gap:16px;margin-top:20px;"
     >
       <div class="form-group">
         <label for="file">Document</label>
@@ -29,39 +72,17 @@
         />
       </div>
       <div style="display:flex;align-items:center;gap:12px;">
-        <button type="submit" class="primary">Run pipeline</button>
+        <button type="submit" class="primary">Run Pipeline</button>
         <span id="upload-indicator">Processing…</span>
       </div>
     </form>
-    <div id="run-output">
+    <div id="run-output" style="margin-top:28px;">
       {% if latest_run %}
         {% include "partials/run_details.html" with context %}
       {% else %}
-        <p style="color:#94a3b8;">No runs yet. Upload a document to inspect ingestion, parsing, chunking, and enrichment artifacts.</p>
+        <p style="color:#94a3b8;">No runs yet. Upload a document to begin pipeline inspection.</p>
       {% endif %}
     </div>
   </div>
-
-  <aside class="panel history-panel">
-    <div>
-      <h3>Recent runs</h3>
-      <p style="color:#94a3b8;font-size:0.9rem;">The dashboard keeps the last {{ runs|length }} runs in memory for quick comparisons.</p>
-    </div>
-    <ol class="history-list">
-      {% for run in runs %}
-        <li class="history-card">
-          <div style="font-weight:600;">{{ run.filename }}</div>
-          <div style="font-size:0.85rem;color:#94a3b8;">
-            Pages: {{ run.page_count }} · Status: {{ run.status }}
-          </div>
-        </li>
-      {% else %}
-        <li style="color:#94a3b8;">No runs yet</li>
-      {% endfor %}
-    </ol>
-    <p style="font-size:0.8rem;color:#94a3b8;margin-top:16px;">
-      Runs reset when the server restarts. Persisting history can be added later if needed.
-    </p>
-  </aside>
 </section>
 {% endblock %}

@@ -1,114 +1,298 @@
-<div style="display:flex;flex-direction:column;gap:28px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
-  {% set chunk_stage = run.get_stage('chunking') %}
-  {% set pixmap_metrics = run.document.metadata.get('pixmap_metrics') if run.document and run.document.metadata else None %}
-  <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap;width:100%;max-width:100%;min-width:0;box-sizing:border-box;">
+<div style="display:flex;flex-direction:column;gap:32px;width:100%;max-width:100%;min-width:0;box-sizing:border-box;" data-run-id="{{ run.id }}" data-run-status="{{ run.status }}">
+  
+  <!-- Run Header -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;">
     <div>
-      <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active run</div>
-      <h3 style="margin:6px 0 4px;font-size:1.6rem;">{{ run.filename }}</h3>
-      <p style="margin:0;font-size:0.95rem;color:#94a3b8;">Run ID: <code>{{ run.id }}</code></p>
+      <div style="font-size:0.75rem;letter-spacing:0.35em;color:#94a3b8;text-transform:uppercase;">Active Pipeline Run</div>
+      <h3 style="margin:6px 0 4px;font-size:1.8rem;color:#e0f2fe;">{{ run.filename }}</h3>
+      <p style="margin:0;font-size:0.9rem;color:#64748b;">Run ID: <code style="color:#94a3b8;">{{ run.id }}</code></p>
     </div>
-    <div style="margin-left:auto;display:flex;gap:18px;font-size:0.95rem;color:#94a3b8;align-items:center;">
-      <span>Pages: {{ run.page_count }}</span>
-      <span>Chunks: {{ chunk_stage.details.chunk_count if chunk_stage else 0 }}</span>
-      <span style="padding:6px 12px;border-radius:999px;border:1px solid rgba(148,163,184,0.3);text-transform:capitalize;">{{ run.status }}</span>
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;">Pages</div>
+        <div style="font-size:1.6rem;font-weight:600;color:#34d399;">{{ run.page_count }}</div>
+      </div>
+      {% set chunk_stage = run.get_stage('chunking') %}
+      <div style="text-align:center;">
+        <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;">Chunks</div>
+        <div style="font-size:1.6rem;font-weight:600;color:#60a5fa;">{{ chunk_stage.details.chunk_count if chunk_stage else 0 }}</div>
+      </div>
+      <div style="padding:8px 16px;border-radius:999px;border:1px solid {% if run.status == 'completed' %}rgba(52,211,153,0.5){% elif run.status == 'failed' %}rgba(248,113,113,0.5){% else %}rgba(251,191,36,0.5){% endif %};background:{% if run.status == 'completed' %}rgba(52,211,153,0.1){% elif run.status == 'failed' %}rgba(248,113,113,0.1){% else %}rgba(251,191,36,0.1){% endif %};text-transform:capitalize;font-weight:600;color:{% if run.status == 'completed' %}#34d399{% elif run.status == 'failed' %}#f87171{% else %}#fbbf24{% endif %};">
+        {{ run.status }}
+      </div>
     </div>
   </div>
 
   {% if run.status == "failed" and run.error_message %}
-    <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.4);border-radius:12px;padding:12px;color:#fecdd3;">
-      {{ run.error_message }}
+    <div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.5);border-radius:12px;padding:16px;color:#fecdd3;">
+      <strong>Error:</strong> {{ run.error_message }}
     </div>
   {% endif %}
 
+  <!-- Document Summary at the Top -->
+  {% set enrichment_stage = run.get_stage('enrichment') %}
+  {% if enrichment_stage and enrichment_stage.details.document_summary %}
+    <section style="background:linear-gradient(135deg, rgba(52,211,153,0.1), rgba(96,165,250,0.1));border:1px solid rgba(52,211,153,0.3);border-radius:16px;padding:24px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <span style="font-size:1.5rem;">📄</span>
+        <h4 style="margin:0;font-size:1.2rem;color:#34d399;">Document Summary</h4>
+      </div>
+      <p style="font-size:1rem;line-height:1.6;color:#e0f2fe;margin:0;">
+        {{ enrichment_stage.details.document_summary }}
+      </p>
+    </section>
+  {% endif %}
+
+  <!-- Pipeline Journey Visualization -->
+  <section>
+    <h4 style="margin-bottom:16px;font-size:1.1rem;color:#e0f2fe;">Pipeline Journey</h4>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      {% for stage_name, stage_title in stage_sequence %}
+        {% set stage = run.get_stage(stage_name) %}
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="
+            padding:8px 16px;
+            border-radius:8px;
+            border:1px solid {% if stage %}rgba(52,211,153,0.5){% else %}rgba(148,163,184,0.3){% endif %};
+            background:{% if stage %}rgba(52,211,153,0.15){% else %}rgba(15,23,42,0.6){% endif %};
+            font-size:0.85rem;
+            font-weight:600;
+            color:{% if stage %}#34d399{% else %}#64748b{% endif %};
+            transition:all 0.3s;
+          ">
+            {{ stage_title }}
+            {% if stage and stage.duration_ms %}
+              <span style="font-size:0.75rem;font-weight:400;margin-left:6px;">({{ '%.0f'|format(stage.duration_ms) }}ms)</span>
+            {% endif %}
+          </div>
+          {% if not loop.last %}
+            <span style="color:#64748b;font-size:1.2rem;">→</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Multi-modal Parsing Metrics -->
+  {% set pixmap_metrics = run.document.metadata.get('pixmap_metrics') if run.document and run.document.metadata else None %}
   {% if pixmap_metrics %}
     <section>
-      <h4 style="margin-bottom:8px;">Multi-modal parsing metrics</h4>
+      <h4 style="margin-bottom:12px;font-size:1.1rem;">Multi-modal Parsing Metrics</h4>
       <div class="metrics-grid">
         <article class="metric-card">
-          <div class="metric-label">Pixmaps generated</div>
+          <div class="metric-label">Pixmaps Generated</div>
           <div class="metric-value">{{ pixmap_metrics.generated or 0 }}</div>
-          <div class="metric-subtext">Rendered pages ({{ pixmap_metrics.dpi or 'n/a' }} DPI)</div>
+          <div class="metric-subtext">{{ pixmap_metrics.dpi or 'n/a' }} DPI</div>
         </article>
         <article class="metric-card">
-          <div class="metric-label">Pixmaps attached</div>
+          <div class="metric-label">Pixmaps Attached</div>
           <div class="metric-value">{{ pixmap_metrics.attached or 0 }}</div>
           <div class="metric-subtext">Skipped: {{ pixmap_metrics.skipped or 0 }}</div>
         </article>
         <article class="metric-card">
-          <div class="metric-label">Total image size</div>
+          <div class="metric-label">Total Size</div>
           {% set total_bytes = pixmap_metrics.total_size_bytes or 0 %}
           <div class="metric-value">{{ '%.1f'|format((total_bytes / 1024) if total_bytes else 0) }} KB</div>
-          <div class="metric-subtext">Across attached pixmaps</div>
+          <div class="metric-subtext">Image payload</div>
         </article>
         <article class="metric-card">
-          <div class="metric-label">Avg parsing LLM latency</div>
+          <div class="metric-label">Avg LLM Latency</div>
           {% set latency = pixmap_metrics.avg_structured_latency_ms %}
           <div class="metric-value">
-            {% if latency %}
-              {{ '%.0f'|format(latency) }} ms
-            {% else %}
-              —
-            {% endif %}
+            {% if latency %}{{ '%.0f'|format(latency) }} ms{% else %}—{% endif %}
           </div>
-          <div class="metric-subtext">Mean of structured parser calls</div>
+          <div class="metric-subtext">Structured parsing</div>
         </article>
       </div>
     </section>
   {% endif %}
 
-  {% if run.file_path and run.document %}
-    <div class="two-column">
-      <article>
-        <h4>Uploaded document preview</h4>
-        <iframe
-          title="Document preview"
-          class="preview"
-          src="{{ request.url_for('static', path=run.file_path) }}"
-        ></iframe>
-      </article>
-      <article>
-        <h4>Chunk highlights</h4>
-        {% set chunks = chunk_stage.details.pages if chunk_stage else [] %}
-        {% if chunks %}
-          <div class="chunk-list">
-            {% for page in chunks %}
-              <div class="chunk-card">
-                <div style="font-size:0.85rem;color:#94a3b8;">Page {{ page.page_number }} · {{ page.chunk_count }} chunks</div>
-                <ul style="list-style:none;padding:0;margin:10px 0 0;display:flex;flex-direction:column;gap:8px;font-size:0.85rem;">
-                  {% for chunk in page.chunks[:4] %}
-                    <li>
-                      <div style="font-family:monospace;font-size:0.75rem;color:#34d399;">{{ chunk.chunk_id[:10] }}…</div>
-                      <div style="margin:4px 0;color:#e0f2fe;">{{ chunk.text_preview }}{% if chunk.text_preview|length == 200 %}…{% endif %}</div>
-                      <div style="color:#94a3b8;">Offsets {{ chunk.offset[0] }}–{{ chunk.offset[1] }}</div>
-                    </li>
-                  {% endfor %}
-                </ul>
+  <!-- Parsed Page Components - First Class Citizens -->
+  {% set parsing_stage = run.get_stage('parsing') %}
+  {% if parsing_stage and parsing_stage.details.pages %}
+    <section>
+      <h4 style="margin-bottom:16px;font-size:1.1rem;">Parsed Page Components</h4>
+      <div class="scrollable-container" style="max-height:600px;">
+        <div style="display:flex;flex-direction:column;gap:20px;">
+          {% for page in parsing_stage.details.pages %}
+            <div style="border:1px solid rgba(148,163,184,0.25);border-radius:12px;padding:20px;background:rgba(15,23,42,0.6);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div style="font-size:1.1rem;font-weight:600;color:#e0f2fe;">Page {{ page.page_number }}</div>
+                  {% if page.component_count %}
+                    <div style="font-size:0.85rem;color:#94a3b8;">
+                      {{ page.component_count }} components
+                    </div>
+                  {% endif %}
+                </div>
+                {% if page.component_summary %}
+                  <div style="display:flex;gap:12px;font-size:0.85rem;">
+                    <span style="color:#34d399;">📝 {{ page.component_summary.text }} text</span>
+                    <span style="color:#60a5fa;">🖼️ {{ page.component_summary.image }} images</span>
+                    <span style="color:#f59e0b;">📊 {{ page.component_summary.table }} tables</span>
+                  </div>
+                {% endif %}
               </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p style="color:#94a3b8;">Chunk details will appear after the chunking stage emits data.</p>
-        {% endif %}
-      </article>
-    </div>
+              
+              {% if page.components %}
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                  {% for component in page.components[:20] %}
+                    <details style="border:1px solid rgba(148,163,184,0.2);border-radius:8px;background:rgba(8,15,32,0.7);overflow:hidden;">
+                      <summary style="
+                        padding:12px 16px;
+                        cursor:pointer;
+                        user-select:none;
+                        display:flex;
+                        align-items:center;
+                        gap:10px;
+                        border-left:3px solid {% if component.type == 'text' %}#34d399{% elif component.type == 'image' %}#60a5fa{% else %}#f59e0b{% endif %};
+                      ">
+                        <span style="
+                          font-size:0.75rem;
+                          font-weight:700;
+                          text-transform:uppercase;
+                          letter-spacing:0.1em;
+                          padding:4px 8px;
+                          border-radius:4px;
+                          background:{% if component.type == 'text' %}rgba(52,211,153,0.2){% elif component.type == 'image' %}rgba(96,165,250,0.2){% else %}rgba(245,158,11,0.2){% endif %};
+                          color:{% if component.type == 'text' %}#34d399{% elif component.type == 'image' %}#60a5fa{% else %}#f59e0b{% endif %};
+                        ">
+                          {{ component.type }}
+                        </span>
+                        <span style="font-size:0.8rem;color:#94a3b8;">Order: {{ component.order }}</span>
+                        {% if component.type == 'text' and component.text %}
+                          <span style="flex:1;color:#cbd5e1;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                            {{ component.text[:80] }}{% if component.text|length > 80 %}...{% endif %}
+                          </span>
+                        {% elif component.type == 'image' and component.description %}
+                          <span style="flex:1;color:#cbd5e1;font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                            {{ component.description[:80] }}{% if component.description|length > 80 %}...{% endif %}
+                          </span>
+                        {% elif component.type == 'table' %}
+                          <span style="flex:1;color:#cbd5e1;font-size:0.9rem;">
+                            {% if component.caption %}{{ component.caption[:60] }}...{% else %}Table with {{ component.rows|length }} rows{% endif %}
+                          </span>
+                        {% endif %}
+                        <span style="color:#64748b;font-size:0.75rem;">▼ Expand</span>
+                      </summary>
+                      
+                      <div style="padding:16px;border-top:1px solid rgba(148,163,184,0.15);">
+                        {% if component.type == 'text' %}
+                          <div style="margin-bottom:12px;">
+                            <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:6px;">Content:</div>
+                            <div style="color:#e0f2fe;font-size:0.95rem;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;">{{ component.text }}</div>
+                          </div>
+                          {% if component.text_type %}
+                            <div style="font-size:0.85rem;color:#94a3b8;">
+                              <strong>Text Type:</strong> <span style="color:#34d399;">{{ component.text_type }}</span>
+                            </div>
+                          {% endif %}
+                          
+                        {% elif component.type == 'image' %}
+                          <div style="margin-bottom:12px;">
+                            <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:6px;">Description:</div>
+                            <div style="color:#cbd5e1;font-size:0.95rem;line-height:1.6;">{{ component.description }}</div>
+                          </div>
+                          {% if component.recognized_text %}
+                            <div style="margin-top:12px;padding:12px;background:rgba(96,165,250,0.1);border-radius:6px;">
+                              <div style="font-size:0.8rem;color:#60a5fa;margin-bottom:6px;font-weight:600;">Recognized Text (OCR):</div>
+                              <div style="color:#cbd5e1;font-size:0.9rem;font-style:italic;">{{ component.recognized_text }}</div>
+                            </div>
+                          {% endif %}
+                          
+                        {% elif component.type == 'table' %}
+                          {% if component.caption %}
+                            <div style="font-weight:600;color:#e0f2fe;margin-bottom:12px;font-size:1rem;">{{ component.caption }}</div>
+                          {% endif %}
+                          <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:12px;">
+                            {{ component.rows|length }} rows
+                            {% if component.rows and component.rows[0] %}
+                              · Columns: {{ component.rows[0].keys()|list|join(', ') }}
+                            {% endif %}
+                          </div>
+                          {% if component.rows %}
+                            <div style="max-height:250px;overflow:auto;font-size:0.85rem;">
+                              <table style="width:100%;border-collapse:collapse;">
+                                <thead>
+                                  <tr style="background:rgba(52,211,153,0.1);position:sticky;top:0;">
+                                    {% for key in component.rows[0].keys() %}
+                                      <th style="padding:8px;text-align:left;border-bottom:1px solid rgba(148,163,184,0.3);color:#34d399;font-weight:600;">{{ key }}</th>
+                                    {% endfor %}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {% for row in component.rows[:10] %}
+                                    <tr style="border-bottom:1px solid rgba(148,163,184,0.1);">
+                                      {% for value in row.values() %}
+                                        <td style="padding:8px;color:#cbd5e1;">{{ value }}</td>
+                                      {% endfor %}
+                                    </tr>
+                                  {% endfor %}
+                                  {% if component.rows|length > 10 %}
+                                    <tr>
+                                      <td colspan="{{ component.rows[0].keys()|length }}" style="padding:8px;text-align:center;color:#64748b;font-style:italic;">
+                                        ... {{ component.rows|length - 10 }} more rows (see JSON)
+                                      </td>
+                                    </tr>
+                                  {% endif %}
+                                </tbody>
+                              </table>
+                            </div>
+                          {% endif %}
+                        {% endif %}
+                        
+                        <!-- JSON view as expandable -->
+                        <details style="margin-top:16px;">
+                          <summary style="cursor:pointer;font-size:0.8rem;color:#64748b;padding:8px 0;">
+                            View Raw JSON ▼
+                          </summary>
+                          <div style="margin-top:8px;">
+                            <div class="stage-output-wrapper">
+                              <button class="copy-button" type="button" onclick="DashboardStageManager.copyStageOutput(this)">Copy</button>
+                              <div class="stage-output-container">
+                                <pre style="font-size:0.75rem;max-height:200px;overflow:auto;">{{ component | tojson(indent=2) }}</pre>
+                              </div>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+                    </details>
+                  {% endfor %}
+                  
+                  {% if page.components|length > 20 %}
+                    <div style="text-align:center;padding:12px;color:#94a3b8;font-size:0.9rem;background:rgba(15,23,42,0.5);border-radius:8px;">
+                      ... {{ page.components|length - 20 }} more components (see full stage JSON below)
+                    </div>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
   {% endif %}
 
+  <!-- Stage Breakdown with Collapsible Details -->
   <section>
-    <h4>Stage breakdown</h4>
+    <h4 style="margin-bottom:16px;font-size:1.1rem;">Detailed Stage Outputs</h4>
+    <p style="font-size:0.9rem;color:#94a3b8;margin-bottom:16px;">
+      Full JSON outputs for each pipeline stage. Expand to inspect raw data structures.
+    </p>
     <div class="stage-grid">
       {% for stage_name, stage_title in stage_sequence %}
         {% set stage = run.get_stage(stage_name) %}
-        <article class="stage-card" data-stage-id="{{ stage_name }}" style="opacity: {{ 1 if stage else 0.6 }};">
+        <article class="stage-card" data-stage-id="{{ stage_name }}" style="opacity:{{ 1 if stage else 0.5 }};">
           <div class="stage-header">
             <div class="stage-number">{{ loop.index }}</div>
             <div>
-              <h5 style="margin:0;font-size:1.1rem;">{{ stage.title if stage else stage_title }}</h5>
-              <p style="margin:2px 0 0;font-size:0.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.2em;">{{ stage_name }}</p>
+              <h5 style="margin:0;font-size:1rem;">{{ stage.title if stage else stage_title }}</h5>
+              <p style="margin:2px 0 0;font-size:0.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.15em;">{{ stage_name }}</p>
             </div>
             {% if stage and stage.duration_ms %}
               <span style="margin-left:auto;font-size:0.85rem;color:#94a3b8;">{{ '%.0f'|format(stage.duration_ms) }} ms</span>
             {% else %}
-              <span style="margin-left:auto;font-size:0.85rem;color:#94a3b8;">Pending…</span>
+              <span style="margin-left:auto;font-size:0.85rem;color:#64748b;">Pending…</span>
             {% endif %}
             {% if stage %}
               <button class="stage-toggle" type="button">Collapse</button>
@@ -116,95 +300,65 @@
           </div>
           {% if stage %}
             <div class="stage-content expanded">
+              
+              <!-- Stage-specific human-readable summaries -->
+              {% if stage.name == "parsing" %}
+                <div style="margin-bottom:16px;padding:12px;background:rgba(52,211,153,0.1);border-radius:8px;border-left:3px solid #34d399;">
+                  <div style="font-size:0.95rem;color:#e0f2fe;">
+                    <strong>Parsed {{ stage.details.page_count }} pages</strong> into structured components
+                  </div>
+                </div>
+              {% elif stage.name == "cleaning" %}
+                <div style="margin-bottom:16px;padding:12px;background:rgba(96,165,250,0.1);border-radius:8px;border-left:3px solid #60a5fa;">
+                  <div style="font-size:0.95rem;color:#e0f2fe;">
+                    <strong>Profile:</strong> {{ stage.details.profile }}
+                  </div>
+                </div>
+              {% elif stage.name == "chunking" %}
+                <div style="margin-bottom:16px;padding:12px;background:rgba(245,158,11,0.1);border-radius:8px;border-left:3px solid #f59e0b;">
+                  <div style="font-size:0.95rem;color:#e0f2fe;">
+                    <strong>Created {{ stage.details.chunk_count }} chunks</strong> across {{ stage.details.page_count }} pages
+                  </div>
+                </div>
+              {% elif stage.name == "vectorization" %}
+                <div style="margin-bottom:16px;padding:12px;background:rgba(168,85,247,0.1);border-radius:8px;border-left:3px solid #a855f7;">
+                  <div style="font-size:0.95rem;color:#e0f2fe;">
+                    <strong>Vector dimension:</strong> {{ stage.details.vector_dimension }}
+                    {% if stage.details.vectors %}
+                      · <strong>{{ stage.details.vectors|length }} vectors</strong> generated
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+              
+              <!-- Truncated vectors display -->
+              {% if stage.name == "vectorization" and stage.details.vectors %}
+                <div style="margin-bottom:16px;">
+                  <div style="font-size:0.85rem;color:#94a3b8;margin-bottom:8px;">Sample Vectors (first 5):</div>
+                  <div style="display:flex;flex-direction:column;gap:8px;font-size:0.8rem;font-family:monospace;">
+                    {% for vector in stage.details.vectors[:5] %}
+                      <div style="padding:8px 12px;background:rgba(168,85,247,0.1);border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cbd5e1;">
+                        [{{ vector.vector[:6]|join(', ') }}, ...]
+                      </div>
+                    {% endfor %}
+                    {% if stage.details.vectors|length > 5 %}
+                      <div style="text-align:center;color:#64748b;font-style:italic;">... {{ stage.details.vectors|length - 5 }} more vectors</div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+              
+              <!-- Full JSON output -->
               <div class="stage-output-wrapper">
                 <button class="copy-button" type="button">Copy</button>
-                <div class="stage-output-container">
+                <div class="stage-output-container" style="max-height:400px;overflow:auto;">
                   <pre>{{ stage.details | tojson(indent=2) }}</pre>
                 </div>
               </div>
-              {% if stage.name == "parsing" %}
-                <div style="margin-top:16px;font-size:0.9rem;">
-                  <p style="color:#e0f2fe;margin-bottom:12px;">
-                    <strong>Pages parsed:</strong> {{ stage.details.page_count }}
-                  </p>
-                  {% if stage.details.pages %}
-                    <div style="display:flex;flex-direction:column;gap:16px;">
-                      {% for page in stage.details.pages %}
-                        <div style="border:1px solid rgba(148,163,184,0.2);border-radius:8px;padding:12px;background:rgba(30,41,59,0.5);">
-                          <div style="font-weight:600;color:#e0f2fe;margin-bottom:8px;">
-                            Page {{ page.page_number }}
-                            {% if page.component_count %}
-                              · {{ page.component_count }} components
-                              {% if page.component_summary %}
-                                ({{ page.component_summary.text }} text, {{ page.component_summary.image }} images, {{ page.component_summary.table }} tables)
-                              {% endif %}
-                            {% endif %}
-                          </div>
-                          {% if page.components %}
-                            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;max-height:400px;overflow-y:auto;">
-                              {% for component in page.components[:20] %}
-                                <div style="padding:8px;background:rgba(15,23,42,0.6);border-radius:4px;border-left:3px solid {% if component.type == 'text' %}#34d399{% elif component.type == 'image' %}#60a5fa{% else %}#f59e0b{% endif %};">
-                                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                                    <span style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;font-weight:600;">{{ component.type }}</span>
-                                    <span style="font-size:0.75rem;color:#64748b;">order: {{ component.order }}</span>
-                                  </div>
-                                  {% if component.type == 'text' %}
-                                    <div style="color:#e0f2fe;font-size:0.85rem;white-space:pre-wrap;word-break:break-word;">
-                                      {{ component.text[:200] }}{% if component.text|length > 200 %}…{% endif %}
-                                    </div>
-                                    {% if component.text_type %}
-                                      <div style="font-size:0.75rem;color:#94a3b8;margin-top:4px;">Type: {{ component.text_type }}</div>
-                                    {% endif %}
-                                  {% elif component.type == 'image' %}
-                                    <div style="color:#cbd5e1;font-size:0.85rem;">{{ component.description[:150] }}{% if component.description|length > 150 %}…{% endif %}</div>
-                                    {% if component.recognized_text %}
-                                      <div style="color:#94a3b8;font-size:0.75rem;margin-top:4px;font-style:italic;">
-                                        Recognized text: {{ component.recognized_text[:100] }}{% if component.recognized_text|length > 100 %}…{% endif %}
-                                      </div>
-                                    {% endif %}
-                                  {% elif component.type == 'table' %}
-                                    {% if component.caption %}
-                                      <div style="color:#e0f2fe;font-weight:600;margin-bottom:4px;">{{ component.caption }}</div>
-                                    {% endif %}
-                                    <div style="color:#cbd5e1;font-size:0.85rem;">
-                                      {{ component.rows|length }} rows
-                                      {% if component.rows %}
-                                        · Columns: {{ component.rows[0].keys()|list|join(', ') }}
-                                      {% endif %}
-                                    </div>
-                                  {% endif %}
-                                </div>
-                              {% endfor %}
-                              {% if page.components|length > 20 %}
-                                <div style="color:#94a3b8;font-size:0.85rem;text-align:center;padding:8px;">
-                                  ... {{ page.components|length - 20 }} more components (see JSON output)
-                                </div>
-                              {% endif %}
-                            </div>
-                          {% endif %}
-                        </div>
-                      {% endfor %}
-                    </div>
-                  {% endif %}
-                </div>
-              {% elif stage.name == "enrichment" %}
-                <p style="font-size:0.9rem;color:#e0f2fe;">
-                  Document summary:
-                  {% if stage.details.document_summary %}
-                    "{{ stage.details.document_summary }}"
-                  {% else %}
-                    Not available yet.
-                  {% endif %}
-                </p>
-              {% elif stage.name == "cleaning" %}
-                <p style="font-size:0.9rem;color:#e0f2fe;">Profile: {{ stage.details.profile }}</p>
-              {% elif stage.name == "vectorization" %}
-                <p style="font-size:0.9rem;color:#e0f2fe;">Vector dimension: {{ stage.details.vector_dimension }}</p>
-              {% endif %}
             </div>
           {% else %}
             <div class="stage-content expanded">
-              <p style="color:#94a3b8;font-size:0.9rem;">Waiting for {{ stage_title }}…</p>
+              <p style="color:#64748b;font-size:0.9rem;">⏳ Waiting for {{ stage_title }} to complete...</p>
             </div>
           {% endif %}
         </article>
@@ -212,11 +366,4 @@
     </div>
   </section>
 
-  <section style="font-size:0.9rem;color:#94a3b8;">
-    <h4>Need more fidelity?</h4>
-    <p style="margin-top:6px;">
-      Extend any pipeline stage and emit additional metadata; the dashboard automatically surfaces it in the numbered cards as
-      soon as the stage completes.
-    </p>
-  </section>
 </div>
