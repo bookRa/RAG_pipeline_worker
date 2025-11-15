@@ -170,7 +170,7 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 
 - **CleaningLLM (CleaningAdapter)** → Uses LlamaIndex text LLM with `as_structured_llm(CleanedPage)` to normalize parsed content, flag segments for human review, and generate cleaned text. Optionally accepts pixmap paths for vision-based cleaning.
 
-- **SummaryGenerator (LlamaIndexSummaryAdapter)** → Generates LLM-based summaries for chunks and documents. Uses prompts from `docs/prompts/summarization/`. Returns plain text summaries (2-3 sentences per chunk, 3-4 sentences per document).
+- **SummaryGenerator (LlamaIndexSummaryAdapter)** → Generates LLM-based summaries for chunks and documents using hierarchical context. Uses separate prompts for document summaries (`summarization/document_summary.md`, 3-4 sentences) and chunk summaries (`summarization/chunk_summary.md`, 2 sentences). Returns plain text summaries with no structured output.
 
 - **EmbeddingGenerator (LlamaIndexEmbeddingAdapter)** → Delegates to LlamaIndex's configured embedding model (via `llama_index.core.Settings`). Embeds contextualized text for improved retrieval performance.
 
@@ -609,10 +609,12 @@ docs/prompts/
 │   ├── system.md    # Parsing instructions (how to extract components)
 │   └── user.md      # Output schema and examples
 ├── cleaning/
-│   ├── system.md    # Cleaning rules and review criteria
-│   └── user.md      # Input format explanation
+│   ├── system.md              # Cleaning rules and review criteria
+│   └── user.md                # Input format explanation
 └── summarization/
-    └── system.md    # Summarization style and length
+    ├── system.md              # Generic summarization (legacy)
+    ├── document_summary.md    # Document-level summary generation (3-4 sentences)
+    └── chunk_summary.md       # Chunk-level summary generation (2 sentences)
 ```
 
 ### How Prompts Are Loaded

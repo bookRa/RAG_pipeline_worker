@@ -4,6 +4,69 @@ A cheat sheet for understanding data flow, storage locations, and key concepts i
 
 ---
 
+## Visual Overview: LLM-Powered Data Flow
+
+The following diagram shows how document data flows through LLM-powered pipeline stages:
+
+```mermaid
+graph TB
+    subgraph Input
+        PDF[PDF Document]
+    end
+    
+    subgraph Parsing["Stage 1: Parsing (Vision LLM)"]
+        PDF --> PageImages[300 DPI Page Images]
+        PageImages --> VisionLLM[Vision LLM<br/>GPT-4 Vision]
+        VisionLLM --> ParsedPage[ParsedPage<br/>Structured JSON]
+        ParsedPage --> Components[Components:<br/>- Text blocks<br/>- Tables + summaries<br/>- Images + descriptions<br/>- Page summary]
+    end
+    
+    subgraph Cleaning["Stage 2: Cleaning (Text LLM)"]
+        Components --> CleaningLLM[Text LLM<br/>GPT-4o]
+        CleaningLLM --> CleanedSegments[Cleaned Segments<br/>Per Component]
+        CleanedSegments --> Metadata[+ Review flags<br/>+ Cleaning ops<br/>+ Token counts]
+    end
+    
+    subgraph Chunking["Stage 3: Chunking (No LLM)"]
+        Metadata --> ComponentChunking[Component-Aware<br/>Chunking]
+        ComponentChunking --> Chunks[Chunks with<br/>Component Metadata]
+    end
+    
+    subgraph Enrichment["Stage 4: Enrichment (Text LLM)"]
+        Chunks --> DocSummary[Document Summary<br/>Generation]
+        DocSummary --> SummaryLLM[Text LLM<br/>GPT-4o]
+        SummaryLLM --> DocSum[3-4 sentence<br/>document summary]
+        
+        Chunks --> ChunkSummary[Chunk Summary<br/>Generation]
+        ChunkSummary --> ChunkLLM[Text LLM<br/>GPT-4o]
+        ChunkLLM --> ChunkSum[2-sentence<br/>chunk summaries]
+        
+        DocSum --> Contextualized[Contextualized Text<br/>with Hierarchical Context]
+        ChunkSum --> Contextualized
+    end
+    
+    subgraph Vectorization["Stage 5: Vectorization (Embedding Model)"]
+        Contextualized --> EmbedModel[Embedding Model<br/>text-embedding-3-large]
+        EmbedModel --> Vectors[768-dim Vectors]
+        Vectors --> VectorDB[(ChromaDB)]
+    end
+    
+    style VisionLLM fill:#ff9999
+    style CleaningLLM fill:#ff9999
+    style SummaryLLM fill:#ff9999
+    style ChunkLLM fill:#ff9999
+    style EmbedModel fill:#ffcc99
+```
+
+**Key Points**:
+- **Red nodes** = LLM-powered transformations (parsing, cleaning, summarization)
+- **Orange nodes** = Embedding model (not a generative LLM, but still AI-powered)
+- **White nodes** = Data or rule-based processing (no AI)
+
+For detailed information on LLM integration patterns, see [`LLM_Integration_Patterns.md`](LLM_Integration_Patterns.md).
+
+---
+
 ## Pipeline Stages: Data In → Data Out
 
 ### 1. Ingestion

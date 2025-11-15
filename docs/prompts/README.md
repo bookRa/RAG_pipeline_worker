@@ -9,13 +9,15 @@ All LLM prompts are stored as markdown files under this directory, tracked in gi
 ```
 docs/prompts/
 ├── parsing/
-│   ├── system.md        # Vision LLM instructions for extracting components
-│   └── user.md          # Output schema and examples
+│   ├── system.md               # Vision LLM instructions for extracting components
+│   └── user.md                 # Output schema and examples
 ├── cleaning/
-│   ├── system.md        # Text normalization rules and review criteria
-│   └── user.md          # Input format explanation
+│   ├── system.md               # Text normalization rules and review criteria
+│   └── user.md                 # Input format explanation
 └── summarization/
-    └── system.md        # Summarization style and length
+    ├── system.md               # Generic summarization (legacy)
+    ├── document_summary.md     # Document-level summary generation
+    └── chunk_summary.md        # Chunk-level summary generation
 ```
 
 ---
@@ -106,27 +108,83 @@ class CleaningAdapter:
 
 **Adapter**: `LlamaIndexSummaryAdapter` (`src/app/adapters/llama_index/summary_adapter.py`)
 
-**Inputs**:
-- Chunk text (for chunk summaries)
-- Page summaries (for document summary)
+**Purpose**: Generate summaries at document and chunk levels with hierarchical context
 
 **Prompts**:
-- `summarization/system.md` - Style, length, tone
+- `summarization/document_summary.md` - Document-level summary generation (3-4 sentences)
+- `summarization/chunk_summary.md` - Chunk-level summary generation (2 sentences)
+- `summarization/system.md` - Generic summarization (legacy, for backwards compatibility)
+
+---
+
+#### Document Summary Generation
+
+**Inputs**:
+- Document filename and file type
+- Total page count
+- List of (page_number, page_summary) tuples
 
 **Code Example**:
 
 ```python
 class LlamaIndexSummaryAdapter:
     def __init__(self, llm, prompt_settings):
-        self._prompt = load_prompt("docs/prompts/summarization/system.md")
+        self._document_summary_prompt = load_prompt("docs/prompts/summarization/document_summary.md")
     
-    def generate_summary(self, text):
-        # Simple completion (no structured output needed for plain text)
-        response = self._llm.complete(f"{self._prompt}\n\n{text}")
-        return response.text.strip()
+    def summarize_document(self, filename, file_type, page_count, page_summaries):
+        # Format page summaries for LLM
+        formatted_summaries = "\n\n".join(
+            f"**Page {page_num}**: {summary}" 
+            for page_num, summary in page_summaries
+        )
+        
+        user_content = f"""Document: {filename}
+File Type: {file_type}
+Total Pages: {page_count}
+
+Page Summaries:
+{formatted_summaries}
+"""
+        
+        completion = self._llm.complete(f"{self._document_summary_prompt}\n\n{user_content}")
+        return extract_response_text(completion).strip()
 ```
 
-**Output**: Plain text summary (2-3 sentences)
+**Output**: 3-4 sentence summary capturing document type, main topics, key entities, and scope
+
+---
+
+#### Chunk Summary Generation
+
+**Inputs**:
+- Chunk text to summarize
+- Hierarchical context (document title, document summary, page summary, component type)
+
+**Code Example**:
+
+```python
+class LlamaIndexSummaryAdapter:
+    def __init__(self, llm, prompt_settings):
+        self._chunk_summary_prompt = load_prompt("docs/prompts/summarization/chunk_summary.md")
+    
+    def summarize_chunk(self, chunk_text, document_title, document_summary, 
+                       page_summary, component_type):
+        # Provide context to help LLM understand chunk's role
+        user_content = f"""Context:
+- Document title: {document_title}
+- Document summary: {document_summary}
+- Page summary: {page_summary or 'N/A'}
+- Component type: {component_type or 'text'}
+
+Chunk Text:
+{chunk_text}
+"""
+        
+        completion = self._llm.complete(f"{self._chunk_summary_prompt}\n\n{user_content}")
+        return extract_response_text(completion).strip()
+```
+
+**Output**: 2-sentence summary (what the chunk contains + how it relates to the document)
 
 ---
 

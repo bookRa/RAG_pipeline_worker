@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from ..application.interfaces import SummaryGenerator, ObservabilityRecorder
 from ..domain.models import Document
@@ -114,7 +115,7 @@ class EnrichmentService:
         return text[:120].strip()
     
     def _generate_document_summary(self, document: Document) -> str:
-        """Generate comprehensive document-level summary."""
+        """Generate comprehensive document-level summary using SummaryGenerator interface."""
         if not self.summary_generator or not self.use_llm_summarization:
             # Fallback: concatenate page summaries
             parsed_pages = document.metadata.get("parsed_pages", {})
@@ -125,44 +126,33 @@ class EnrichmentService:
                     page_summaries.append(f"Page {page_num}: {parsed_page['page_summary']}")
             return " ".join(page_summaries)[:500]
         
-        # Use LLM to generate document summary from page summaries
+        # Collect page summaries with page numbers
         parsed_pages = document.metadata.get("parsed_pages", {})
-        content = []
+        page_summaries = []
         
         for page in document.pages:
             page_data = parsed_pages.get(str(page.page_number), {})
             if page_summary := page_data.get("page_summary"):
-                content.append(f"**Page {page.page_number}**: {page_summary}")
+                page_summaries.append((page.page_number, page_summary))
             else:
                 # Fallback to first 300 chars of cleaned text
                 preview = (page.cleaned_text or page.text)[:300]
-                content.append(f"**Page {page.page_number}**: {preview}...")
-        
-        context = "\n\n".join(content)
-        
-        prompt = f"""Document: {document.filename}
-File Type: {document.file_type}
-Total Pages: {len(document.pages)}
-
-Page Summaries:
-{context}
-
-Generate a comprehensive 3-4 sentence summary of this entire document. Focus on:
-1. Document type and purpose
-2. Main topics covered
-3. Key entities or standards mentioned
-4. Overall scope and audience
-
-Summary:"""
+                page_summaries.append((page.page_number, f"{preview}..."))
         
         try:
-            summary = self.summary_generator.summarize(prompt)
+            # Use the new interface method with proper prompts
+            summary = self.summary_generator.summarize_document(
+                filename=document.filename,
+                file_type=document.file_type,
+                page_count=len(document.pages),
+                page_summaries=page_summaries,
+            )
             logger.debug("Generated document summary via LLM: %s", summary[:100])
             return summary
         except Exception as exc:
             logger.warning("Failed to generate document summary via LLM: %s", exc)
             # Fallback to page summary concatenation
-            return " ".join(content)[:500]
+            return " ".join(s for _, s in page_summaries)[:500]
     
     def _extract_section_headings(self, document: Document) -> dict[int, str | None]:
         """Extract section headings for each page."""
@@ -200,20 +190,15 @@ Summary:"""
         # Generate chunk summary if missing
         chunk_summary = chunk.metadata.summary if chunk.metadata else None
         if not chunk_summary and self.summary_generator and self.use_llm_summarization:
-            # Pass hierarchical context to summary generation
-            summary_prompt = f"""Document: {document_title}
-Document Summary: {document_summary}
-Page {chunk.page_number} Summary: {page_summary or 'N/A'}
-Component Type: {chunk.metadata.component_type if chunk.metadata else 'text'}
-
-Chunk Text:
-{chunk.cleaned_text or chunk.text}
-
-Generate a 2-sentence summary of this chunk, explaining what information it contains and how it relates to the document's overall purpose.
-
-Summary:"""
+            # Use the new interface method with proper prompts
             try:
-                chunk_summary = self.summary_generator.summarize(summary_prompt)
+                chunk_summary = self.summary_generator.summarize_chunk(
+                    chunk_text=chunk.cleaned_text or chunk.text,
+                    document_title=document_title,
+                    document_summary=document_summary,
+                    page_summary=page_summary,
+                    component_type=chunk.metadata.component_type if chunk.metadata else None,
+                )
                 logger.debug("Generated chunk summary via LLM")
             except Exception as exc:
                 logger.warning("Failed to generate chunk summary: %s", exc)

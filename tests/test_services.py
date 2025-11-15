@@ -224,6 +224,7 @@ def test_chunking_generates_chunks():
 
 
 def test_enrichment_adds_summary_and_document_summary():
+    """Test that enrichment adds metadata even without LLM summarization."""
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
     parsing = ParsingService(observability=observability)
@@ -236,20 +237,33 @@ def test_enrichment_adds_summary_and_document_summary():
 
     chunk = document.pages[0].chunks[0]
     assert chunk.metadata is not None
-    assert chunk.metadata.summary
-    assert document.summary
+    # Without a summary generator, summaries won't be generated
+    assert chunk.metadata.document_title
+    assert chunk.contextualized_text  # But contextualized text should be present
+    assert document.status == "enriched"
 
 
 def test_enrichment_uses_summary_generator():
     class StubSummaryGenerator:
         def summarize(self, text: str) -> str:
             return "stub-summary"
+        
+        def summarize_document(self, filename: str, file_type: str, page_count: int, page_summaries) -> str:
+            return "stub-document-summary"
+        
+        def summarize_chunk(self, chunk_text: str, document_title: str, document_summary: str, 
+                          page_summary: str | None, component_type: str | None) -> str:
+            return "stub-chunk-summary"
 
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
     parsing = ParsingService(observability=observability)
     chunking = ChunkingService(observability=observability)
-    enrichment = EnrichmentService(observability=observability, summary_generator=StubSummaryGenerator())
+    enrichment = EnrichmentService(
+        observability=observability, 
+        summary_generator=StubSummaryGenerator(),
+        use_llm_summarization=True
+    )
 
     document = enrichment.enrich(
         chunking.chunk(parsing.parse(ingestion.ingest(build_document())), size=30, overlap=5)
@@ -257,7 +271,8 @@ def test_enrichment_uses_summary_generator():
 
     chunk = document.pages[0].chunks[0]
     assert chunk.metadata is not None
-    assert chunk.metadata.summary == "stub-summary"
+    assert chunk.metadata.summary == "stub-chunk-summary"
+    assert document.summary == "stub-document-summary"
 
 
 def test_cleaning_normalizes_text():

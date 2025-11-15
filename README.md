@@ -315,6 +315,7 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
 
 ### Deep Dives
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - **NEW!** Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
 - [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
 - [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
 

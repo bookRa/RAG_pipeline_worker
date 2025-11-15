@@ -30,7 +30,50 @@ class SummaryGenerator(Protocol):
     """Port for generating summaries (LLM, heuristics, etc.)."""
 
     def summarize(self, text: str) -> str:
-        """Return a short summary of the provided text."""
+        """Return a short summary of the provided text.
+        
+        Note: This is a generic method. Use specific methods below for structured summarization.
+        """
+    
+    def summarize_document(
+        self,
+        filename: str,
+        file_type: str,
+        page_count: int,
+        page_summaries: Sequence[tuple[int, str]],
+    ) -> str:
+        """Generate a comprehensive document-level summary from page summaries.
+        
+        Args:
+            filename: Document filename
+            file_type: Document file extension/type
+            page_count: Total number of pages
+            page_summaries: List of (page_number, summary) tuples
+        
+        Returns:
+            A 3-4 sentence summary capturing document type, main topics, key entities, and scope.
+        """
+    
+    def summarize_chunk(
+        self,
+        chunk_text: str,
+        document_title: str,
+        document_summary: str,
+        page_summary: str | None,
+        component_type: str | None,
+    ) -> str:
+        """Generate a chunk summary with hierarchical context.
+        
+        Args:
+            chunk_text: The text content to summarize
+            document_title: Name of the source document
+            document_summary: Brief overview of the entire document
+            page_summary: Summary of the page this chunk comes from
+            component_type: Type of component (text, table, image)
+        
+        Returns:
+            A 2-sentence summary explaining what the chunk contains and how it relates to the document.
+        """
 
 
 class ObservabilityRecorder(Protocol):
