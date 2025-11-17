@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,9 @@ from .api.routers import router as pipeline_router
 from .config import settings
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+# Reduce noise from uvicorn access logs (dashboard polling, static files, etc.)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 app = FastAPI(title=settings.app_name)
 app.include_router(pipeline_router)

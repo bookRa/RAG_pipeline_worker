@@ -25,6 +25,20 @@ class Metadata(BaseModel):
         title: Optional human-readable title for the chunk
         summary: Optional summary or abstract of the chunk content
         keywords: List of keywords extracted from the chunk
+        
+        # Component Context (for Contextual Retrieval)
+        component_id: Links chunk to source component in parsed page
+        component_type: Type of component ("text", "image", "table")
+        component_order: Order of component in page layout
+        component_description: For images - the visual description
+        component_summary: For tables - the table summary
+        
+        # Hierarchical Context (for Hierarchical RAG)
+        document_title: Title/filename of the parent document
+        document_summary: High-level summary of entire document
+        page_summary: Summary of the page this chunk comes from
+        section_heading: Heading of the section this chunk belongs to
+        
         extra: Dictionary for extensible metadata (e.g., cleaning info, vector data)
     
     Cleaning Metadata Structure (stored in extra["cleaning"]):
@@ -47,6 +61,20 @@ class Metadata(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     keywords: list[str] = Field(default_factory=list)
+    
+    # Component context for contextual retrieval
+    component_id: Optional[str] = Field(default=None, description="Links to parsed component ID")
+    component_type: Optional[str] = Field(default=None, description="Component type: text, image, or table")
+    component_order: Optional[int] = Field(default=None, description="Order in page layout")
+    component_description: Optional[str] = Field(default=None, description="For images: visual description")
+    component_summary: Optional[str] = Field(default=None, description="For tables: table summary")
+    
+    # Hierarchical context for hierarchical RAG
+    document_title: Optional[str] = Field(default=None, description="Document filename/title")
+    document_summary: Optional[str] = Field(default=None, description="Document-level summary")
+    page_summary: Optional[str] = Field(default=None, description="Page-level summary")
+    section_heading: Optional[str] = Field(default=None, description="Preceding section heading")
+    
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -58,9 +86,9 @@ class Chunk(BaseModel):
     retrieval, and indexing. This model preserves both raw and cleaned versions of
     the text to support different use cases (e.g., exact source navigation vs. normalized search).
     
-    Raw vs Cleaned Text:
+    Raw vs Cleaned vs Contextualized Text:
         - `text`: Always contains the raw, immutable text slice from the source document.
-                 This is the original extraction output, preserved exactly as extracted.
+                This is the original parsing output, preserved exactly as parsed.
                  Offsets (start_offset, end_offset) reference positions in this raw text.
                  This enables precise document navigation and source citation.
         
@@ -68,7 +96,12 @@ class Chunk(BaseModel):
                           (whitespace normalization, case handling, etc.). This is a parallel
                           slice that corresponds to the same logical segment as `text`, but
                           may differ in length or content due to normalization.
-                          Used for improved search, vectorization, and semantic operations.
+                          Used for generation and display.
+        
+        - `contextualized_text`: Optional version with document/page/section context prepended.
+                                 Format: "[Document: X | Page: Y | Section: Z | Type: T]\n\nclean_text"
+                                 Used specifically for embedding to improve contextual retrieval.
+                                 Follows Anthropic's contextual retrieval pattern.
     
     Future Extensibility for Semantic Chunking:
         Currently, chunks are assumed to come from a single page (page_number is a single int).
@@ -81,10 +114,11 @@ class Chunk(BaseModel):
         id: Unique identifier for this chunk
         document_id: Reference to the parent document
         page_number: Page number where chunk originates (single page for now, extensible for multi-page)
-        text: Raw text slice from source document (immutable, preserves exact extraction)
+        text: Raw text slice from source document (immutable, preserves exact parsing output)
         start_offset: Character offset in raw page text where chunk starts (for navigation)
         end_offset: Character offset in raw page text where chunk ends (for navigation)
-        cleaned_text: Optional cleaned/normalized version of the text (parallel to raw text)
+        cleaned_text: Optional cleaned/normalized version of the text (for generation)
+        contextualized_text: Optional context-enriched text (for embedding)
         metadata: Optional enrichment metadata (keywords, summary, cleaning info, etc.)
     """
 
@@ -95,6 +129,10 @@ class Chunk(BaseModel):
     start_offset: int
     end_offset: int
     cleaned_text: Optional[str] = None
+    contextualized_text: Optional[str] = Field(
+        default=None,
+        description="Context-enriched text for embedding (includes document/page/section context prefix)",
+    )
     metadata: Optional[Metadata] = None
 
 
@@ -107,7 +145,7 @@ class Page(BaseModel):
     during the chunking stage.
     
     Raw vs Cleaned Text:
-        - `text`: Raw, immutable text extracted from the document (preserves exact extraction output)
+        - `text`: Raw, immutable text parsed from the document (preserves exact parsing output)
         - `cleaned_text`: Optional normalized version after cleaning operations (whitespace, case, etc.)
     
     The cleaning service populates `cleaned_text` if cleaning has run. The chunking service
@@ -156,6 +194,14 @@ class Document(BaseModel):
         else:
             updated_pages = [*self.pages, normalized_page]
         
+        return self.model_copy(update={"pages": updated_pages})
+    
+    def replace_page(self, page_number: int, new_page: Page) -> Document:
+        """Return a new document with the specified page replaced."""
+        updated_pages = [
+            new_page if p.page_number == page_number else p
+            for p in self.pages
+        ]
         return self.model_copy(update={"pages": updated_pages})
 
     def add_chunk(self, page_number: int, chunk: Chunk) -> Document:

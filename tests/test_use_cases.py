@@ -10,7 +10,7 @@ from src.app.persistence.adapters.document_filesystem import FileSystemDocumentR
 from src.app.services.chunking_service import ChunkingService
 from src.app.services.cleaning_service import CleaningService
 from src.app.services.enrichment_service import EnrichmentService
-from src.app.services.extraction_service import ExtractionService
+from src.app.services.parsing_service import ParsingService
 from src.app.services.ingestion_service import IngestionService
 from src.app.services.pipeline_runner import PipelineRunner
 from src.app.services.vector_service import VectorService
@@ -27,14 +27,14 @@ def build_null_observability() -> NullObservabilityRecorder:
 def build_pipeline_runner() -> PipelineRunner:
     observability = build_null_observability()
     ingestion = IngestionService(observability=observability)
-    extraction = ExtractionService(observability=observability)
+    parsing = ParsingService(observability=observability)
     cleaning = CleaningService(observability=observability)
     chunking = ChunkingService(observability=observability)
     enrichment = EnrichmentService(observability=observability)
     vectorization = VectorService(observability=observability)
     return PipelineRunner(
         ingestion=ingestion,
-        extraction=extraction,
+        parsing=parsing,
         cleaning=cleaning,
         chunking=chunking,
         enrichment=enrichment,
@@ -86,7 +86,7 @@ class TestUploadDocumentUseCase:
         assert saved is not None
         assert saved.id == document.id
 
-    def test_execute_handles_extension_extraction(self, tmp_path):
+    def test_execute_handles_extension_parsing(self, tmp_path):
         runner = build_pipeline_runner()
         repository = FileSystemDocumentRepository(tmp_path)
         use_case = UploadDocumentUseCase(runner=runner, repository=repository)

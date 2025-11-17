@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
+from typing import Any
 
 from ..application.interfaces import SummaryGenerator, ObservabilityRecorder
 from ..domain.models import Document
+
+logger = logging.getLogger(__name__)
 
 
 class EnrichmentService:
@@ -14,10 +18,12 @@ class EnrichmentService:
         observability: ObservabilityRecorder,
         latency: float = 0.0,
         summary_generator: SummaryGenerator | None = None,
+        use_llm_summarization: bool = True,
     ) -> None:
         self.observability = observability
         self.latency = latency
         self.summary_generator = summary_generator
+        self.use_llm_summarization = use_llm_summarization
 
     def _simulate_latency(self) -> None:
         if self.latency > 0:
@@ -25,49 +31,78 @@ class EnrichmentService:
 
     def enrich(self, document: Document) -> Document:
         self._simulate_latency()
+        
+        logger.info(
+            "✨ Starting enrichment for doc=%s (%d pages, use_llm=%s)",
+            document.id,
+            len(document.pages),
+            self.use_llm_summarization,
+        )
+        
+        # FIRST: Generate document-level summary
+        document_summary = self._generate_document_summary(document)
+        
+        logger.info(
+            "📄 Generated document summary: %s",
+            document_summary[:100] + ("..." if len(document_summary) > 100 else ""),
+        )
+        
+        # Get page summaries from parsed pages
+        parsed_pages = document.metadata.get("parsed_pages", {})
+        page_summaries = {
+            page.page_number: parsed_pages.get(str(page.page_number), {}).get("page_summary")
+            for page in document.pages
+        }
+        
+        # Extract section headings for context
+        section_headings = self._extract_section_headings(document)
+        
         summaries: list[str] = []
         updated_pages = []
+        total_chunks_enriched = 0
         
         for page in document.pages:
+            page_summary = page_summaries.get(page.page_number)
+            section_heading = section_headings.get(page.page_number)
+            
             updated_chunks = []
             for chunk in page.chunks:
-                if chunk.metadata is None:
-                    updated_chunks.append(chunk)
-                    continue
-
-                updated_metadata = chunk.metadata.model_copy()
-                if not updated_metadata.title:
-                    updated_metadata = updated_metadata.model_copy(update={"title": f"{document.filename}#p{page.page_number}"})
-                if not updated_metadata.summary:
-                    summary = self._summarize_chunk(chunk.cleaned_text or chunk.text or "")
-                    updated_metadata = updated_metadata.model_copy(update={"summary": summary})
-                    summaries.append(updated_metadata.summary)
-                else:
-                    summaries.append(updated_metadata.summary)
+                # Enrich chunk with hierarchical context
+                enriched_chunk = self._enrich_chunk_with_context(
+                    chunk=chunk,
+                    document_title=document.filename,
+                    document_summary=document_summary,
+                    page_summary=page_summary,
+                    section_heading=section_heading,
+                )
+                updated_chunks.append(enriched_chunk)
+                total_chunks_enriched += 1
                 
-                updated_chunk = chunk.model_copy(update={"metadata": updated_metadata})
-                updated_chunks.append(updated_chunk)
-
+                if enriched_chunk.metadata and enriched_chunk.metadata.summary:
+                    summaries.append(enriched_chunk.metadata.summary)
+            
             updated_page = page.model_copy(update={"chunks": updated_chunks})
             updated_pages.append(updated_page)
-
-        document_summary = document.summary
-        if summaries and not document_summary:
-            document_summary = " ".join(summaries)[:280]
-
+        
         updated_document = document.model_copy(
             update={
                 "pages": updated_pages,
-                "summary": document_summary,
+                "summary": document_summary,  # Now a real LLM-generated summary
                 "status": "enriched",
             }
+        )
+        
+        logger.info(
+            "✅ Enrichment complete: %d chunks enriched with contextualized text",
+            total_chunks_enriched,
         )
         
         self.observability.record_event(
             stage="enrichment",
             details={
                 "document_id": updated_document.id,
-                "chunk_count": sum(len(page.chunks) for page in updated_document.pages),
+                "chunk_count": total_chunks_enriched,
+                "has_document_summary": bool(document_summary),
             },
         )
         return updated_document
@@ -78,3 +113,147 @@ class EnrichmentService:
         if self.summary_generator:
             return self.summary_generator.summarize(text)
         return text[:120].strip()
+    
+    def _generate_document_summary(self, document: Document) -> str:
+        """Generate comprehensive document-level summary using SummaryGenerator interface."""
+        if not self.summary_generator or not self.use_llm_summarization:
+            # Fallback: concatenate page summaries
+            parsed_pages = document.metadata.get("parsed_pages", {})
+            page_summaries = []
+            for page_num in range(1, len(document.pages) + 1):
+                parsed_page = parsed_pages.get(str(page_num))
+                if parsed_page and parsed_page.get("page_summary"):
+                    page_summaries.append(f"Page {page_num}: {parsed_page['page_summary']}")
+            return " ".join(page_summaries)[:500]
+        
+        # Collect page summaries with page numbers
+        parsed_pages = document.metadata.get("parsed_pages", {})
+        page_summaries = []
+        
+        for page in document.pages:
+            page_data = parsed_pages.get(str(page.page_number), {})
+            if page_summary := page_data.get("page_summary"):
+                page_summaries.append((page.page_number, page_summary))
+            else:
+                # Fallback to first 300 chars of cleaned text
+                preview = (page.cleaned_text or page.text)[:300]
+                page_summaries.append((page.page_number, f"{preview}..."))
+        
+        try:
+            # Use the new interface method with proper prompts
+            summary = self.summary_generator.summarize_document(
+                filename=document.filename,
+                file_type=document.file_type,
+                page_count=len(document.pages),
+                page_summaries=page_summaries,
+            )
+            logger.debug("Generated document summary via LLM: %s", summary[:100])
+            return summary
+        except Exception as exc:
+            logger.warning("Failed to generate document summary via LLM: %s", exc)
+            # Fallback to page summary concatenation
+            return " ".join(s for _, s in page_summaries)[:500]
+    
+    def _extract_section_headings(self, document: Document) -> dict[int, str | None]:
+        """Extract section headings for each page."""
+        parsed_pages = document.metadata.get("parsed_pages", {})
+        headings = {}
+        current_heading = None
+        
+        for page in document.pages:
+            parsed_page = parsed_pages.get(str(page.page_number))
+            if not parsed_page:
+                headings[page.page_number] = current_heading
+                continue
+            
+            # Find first heading component on page
+            for component in parsed_page.get("components", []):
+                if component.get("type") == "text" and component.get("text_type") == "heading":
+                    current_heading = component.get("text")
+                    break
+            
+            headings[page.page_number] = current_heading
+        
+        return headings
+    
+    def _enrich_chunk_with_context(
+        self,
+        chunk: Any,
+        document_title: str,
+        document_summary: str,
+        page_summary: str | None,
+        section_heading: str | None,
+    ) -> Any:
+        """Enrich chunk with summaries and generate contextualized text."""
+        from ..domain.models import Chunk, Metadata
+        
+        # Generate chunk summary if missing
+        chunk_summary = chunk.metadata.summary if chunk.metadata else None
+        if not chunk_summary and self.summary_generator and self.use_llm_summarization:
+            # Use the new interface method with proper prompts
+            try:
+                chunk_summary = self.summary_generator.summarize_chunk(
+                    chunk_text=chunk.cleaned_text or chunk.text,
+                    document_title=document_title,
+                    document_summary=document_summary,
+                    page_summary=page_summary,
+                    component_type=chunk.metadata.component_type if chunk.metadata else None,
+                )
+                logger.debug("Generated chunk summary via LLM")
+            except Exception as exc:
+                logger.warning("Failed to generate chunk summary: %s", exc)
+                chunk_summary = (chunk.cleaned_text or chunk.text)[:120].strip()
+        
+        # Build contextualized text for embedding (Anthropic pattern)
+        context_parts = [
+            f"Document: {document_title}",
+            f"Page: {chunk.page_number}",
+        ]
+        
+        if section_heading:
+            context_parts.append(f"Section: {section_heading}")
+        
+        if chunk.metadata:
+            if chunk.metadata.component_type:
+                context_parts.append(f"Type: {chunk.metadata.component_type}")
+            if chunk.metadata.component_description:
+                context_parts.append(f"Description: {chunk.metadata.component_description[:100]}")
+            if chunk.metadata.component_summary:
+                context_parts.append(f"Table Summary: {chunk.metadata.component_summary[:100]}")
+        
+        context_prefix = " | ".join(context_parts)
+        contextualized_text = f"[{context_prefix}]\n\n{chunk.cleaned_text or chunk.text}"
+        
+        # Update metadata
+        if chunk.metadata:
+            updated_metadata = chunk.metadata.model_copy(update={
+                "summary": chunk_summary,
+                "document_title": document_title,
+                "document_summary": document_summary,
+                "page_summary": page_summary,
+                "section_heading": section_heading,
+            })
+        else:
+            updated_metadata = Metadata(
+                document_id=chunk.document_id,
+                page_number=chunk.page_number,
+                chunk_id=chunk.id,
+                start_offset=chunk.start_offset,
+                end_offset=chunk.end_offset,
+                summary=chunk_summary,
+                document_title=document_title,
+                document_summary=document_summary,
+                page_summary=page_summary,
+                section_heading=section_heading,
+            )
+        
+        logger.debug(
+            "🎯 Enriched chunk (page=%d, type=%s) with contextualized text",
+            chunk.page_number,
+            updated_metadata.component_type or "text",
+        )
+        
+        return chunk.model_copy(update={
+            "metadata": updated_metadata,
+            "contextualized_text": contextualized_text,
+        })

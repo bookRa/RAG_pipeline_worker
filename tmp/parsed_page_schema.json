@@ -1,0 +1,260 @@
+{
+    "name": "parsed_page",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "description": "Unique document identifier."
+        },
+        "page_number": {
+          "type": "integer",
+          "description": "The number of the page within the document."
+        },
+        "raw_text": {
+          "type": "string",
+          "description": "Full markdown representation of the page content."
+        },
+        "components": {
+          "type": "array",
+          "description": "Ordered list of components reflecting page layout (top to bottom, left to right).",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/parsed_text_component"
+              },
+              {
+                "$ref": "#/$defs/parsed_image_component"
+              },
+              {
+                "$ref": "#/$defs/parsed_table_component"
+              }
+            ]
+          }
+        },
+        "pixmap_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Filepath or URI to the full page pixmap image, if available."
+        },
+        "pixmap_size_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Size in bytes of the referenced pixmap file."
+        }
+      },
+      "required": [
+        "document_id",
+        "page_number",
+        "raw_text",
+        "components",
+        "pixmap_path",
+        "pixmap_size_bytes"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "bounding_box": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number",
+              "description": "X-coordinate of the top-left corner."
+            },
+            "y": {
+              "type": "number",
+              "description": "Y-coordinate of the top-left corner."
+            },
+            "width": {
+              "type": "number",
+              "description": "Width of the bounding box."
+            },
+            "height": {
+              "type": "number",
+              "description": "Height of the bounding box."
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false
+        },
+        "parsed_text_component": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "text"
+              ],
+              "description": "Component type discriminator: always 'text'."
+            },
+            "id": {
+              "type": "string",
+              "description": "Unique identifier for this component."
+            },
+            "order": {
+              "type": "integer",
+              "description": "Visual order of the component among others on the page."
+            },
+            "text": {
+              "type": "string",
+              "description": "The full textual content of this component."
+            },
+            "text_type": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Type of text element, e.g., 'paragraph', 'heading', 'caption', 'label', etc."
+            },
+            "bbox": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/bounding_box"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bounding box of this component on the page."
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "order",
+            "text",
+            "text_type",
+            "bbox"
+          ],
+          "additionalProperties": false
+        },
+        "parsed_image_component": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "image"
+              ],
+              "description": "Component type discriminator: always 'image'."
+            },
+            "id": {
+              "type": "string",
+              "description": "Unique identifier for this component."
+            },
+            "order": {
+              "type": "integer",
+              "description": "Visual order of the component among others on the page."
+            },
+            "description": {
+              "type": "string",
+              "description": "Detailed visual description of what is shown in the image, not text captions."
+            },
+            "recognized_text": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Any visible text recognized within the image (OCR results)."
+            },
+            "bbox": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/bounding_box"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bounding box of this component on the page."
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "order",
+            "description",
+            "recognized_text",
+            "bbox"
+          ],
+          "additionalProperties": false
+        },
+        "parsed_table_component": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "table"
+              ],
+              "description": "Component type discriminator: always 'table'."
+            },
+            "id": {
+              "type": "string",
+              "description": "Unique identifier for this component."
+            },
+            "order": {
+              "type": "integer",
+              "description": "Visual order of the component among others on the page."
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Table caption or title, if provided."
+            },
+            "rows": {
+              "type": "array",
+              "description": "List of table rows. Each row is a dictionary with string keys and values (handles merged cells, variable column counts).",
+              "items": {
+                "$ref": "#/$defs/table_row"
+              }
+            },
+            "bbox": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/bounding_box"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bounding box of this component on the page."
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "order",
+            "caption",
+            "rows",
+            "bbox"
+          ],
+          "additionalProperties": false
+        },
+        "table_row": {
+          "type": "object",
+          "properties": {
+            "col1": {
+              "type": "string",
+              "description": "Value for table column. Key names like col1/col2/colN should be replaced with real header names if known."
+            }
+          },
+          "required": [
+            "col1"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "strict": true
+  }

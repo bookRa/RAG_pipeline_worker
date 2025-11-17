@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from functools import lru_cache
 from pathlib import Path
 
@@ -9,6 +10,18 @@ from .adapters.docx_parser import DocxParserAdapter
 from .adapters.llm_client import LLMSummaryAdapter
 from .adapters.pdf_parser import PdfParserAdapter
 from .adapters.ppt_parser import PptParserAdapter
+from .adapters.llama_index.bootstrap import (
+    LlamaIndexBootstrapError,
+    configure_llama_index,
+    get_llama_llm,
+    get_llama_text_splitter,
+    get_llama_embedding_model,
+    get_llama_multi_modal_llm,
+)
+from .adapters.llama_index.cleaning_adapter import CleaningAdapter
+from .adapters.llama_index.parsing_adapter import ImageAwareParsingAdapter
+from .adapters.llama_index.summary_adapter import LlamaIndexSummaryAdapter
+from .adapters.llama_index.embedding_adapter import LlamaIndexEmbeddingAdapter
 from .persistence.adapters.document_filesystem import FileSystemDocumentRepository
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
@@ -17,11 +30,15 @@ from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, Upl
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
 from .services.enrichment_service import EnrichmentService
-from .services.extraction_service import ExtractionService
+from .services.parsing_service import ParsingService
 from .services.ingestion_service import IngestionService
 from .services.pipeline_runner import PipelineRunner
 from .services.run_manager import PipelineRunManager
 from .services.vector_service import VectorService
+from .vector_store import InMemoryVectorStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class AppContainer:
@@ -37,12 +54,19 @@ class AppContainer:
         self.ingestion_repository = FileSystemIngestionRepository(ingestion_storage_dir)
         documents_dir = Path(os.getenv("DOCUMENT_STORAGE_DIR", base_dir / "artifacts" / "documents")).resolve()
         self.document_repository = FileSystemDocumentRepository(documents_dir)
+        pixmap_dir = Path(
+            os.getenv("PIXMAP_STORAGE_DIR", self.settings.chunking.pixmap_storage_dir)
+        ).resolve()
         self.document_parsers = [
             PdfParserAdapter(),
             DocxParserAdapter(),
             PptParserAdapter(),
         ]
         self.summary_generator = LLMSummaryAdapter()
+        self.embedding_generator = None
+        self.structured_parser = None
+        self.structured_cleaner = None
+        self.text_splitter = None
 
         self.observability = LoggingObservabilityRecorder()
 
@@ -51,19 +75,80 @@ class AppContainer:
             latency=stage_latency,
             repository=self.ingestion_repository,
         )
-        self.extraction_service = ExtractionService(
+        try:
+            configure_llama_index(self.settings)
+            llm_client = get_llama_llm()
+            embed_model = get_llama_embedding_model()
+            self.text_splitter = get_llama_text_splitter()
+            # Use the same OpenAI LLM (GPT-4o-mini) for both text and vision
+            # GPT-4o-mini supports vision through ChatMessage with image content
+            self.structured_parser = ImageAwareParsingAdapter(
+                llm=llm_client,
+                prompt_settings=self.settings.prompts,
+                vision_llm=None,  # Use same LLM for vision
+                use_structured_outputs=self.settings.llm.use_structured_outputs,
+                use_streaming=self.settings.llm.use_streaming,
+                streaming_max_chars=self.settings.llm.streaming_max_chars,
+                streaming_repetition_window=self.settings.llm.streaming_repetition_window,
+                streaming_repetition_threshold=self.settings.llm.streaming_repetition_threshold,
+                streaming_max_consecutive_newlines=self.settings.llm.streaming_max_consecutive_newlines,
+            )
+            self.structured_cleaner = CleaningAdapter(
+                llm=llm_client,
+                prompt_settings=self.settings.prompts,
+                use_structured_outputs=self.settings.llm.use_structured_outputs,
+                use_vision=self.settings.use_vision_cleaning,  # NEW: Vision-based cleaning
+            )
+            self.summary_generator = LlamaIndexSummaryAdapter(llm=llm_client, prompt_settings=self.settings.prompts)
+            self.embedding_generator = LlamaIndexEmbeddingAdapter(
+                embed_model=embed_model,
+                dimension=self.settings.embeddings.vector_dimension,
+            )
+        except LlamaIndexBootstrapError as exc:
+            logger.warning("LlamaIndex not configured, falling back to stubbed pipeline: %s", exc)
+            self.embedding_generator = None
+
+        self.parsing_service = ParsingService(
             observability=self.observability,
             latency=stage_latency,
             parsers=self.document_parsers,
+            structured_parser=self.structured_parser,
+            include_images=self.settings.chunking.include_images,
+            pixmap_dir=pixmap_dir,
+            pixmap_dpi=self.settings.chunking.pixmap_dpi,
+            max_pixmap_bytes=self.settings.chunking.max_pixmap_bytes,
+            pixmap_max_width=self.settings.chunking.pixmap_max_width,
+            pixmap_max_height=self.settings.chunking.pixmap_max_height,
+            pixmap_resize_quality=self.settings.chunking.pixmap_resize_quality,
         )
-        self.cleaning_service = CleaningService(observability=self.observability, latency=stage_latency)
-        self.chunking_service = ChunkingService(observability=self.observability, latency=stage_latency)
+        self.cleaning_service = CleaningService(
+            observability=self.observability,
+            latency=stage_latency,
+            structured_cleaner=self.structured_cleaner,
+        )
+        self.chunking_service = ChunkingService(
+            observability=self.observability,
+            latency=stage_latency,
+            chunk_size=self.settings.chunking.chunk_size,
+            chunk_overlap=self.settings.chunking.chunk_overlap,
+            text_splitter=self.text_splitter,
+            strategy=self.settings.chunking.strategy,  # NEW: Component-aware chunking
+            component_merge_threshold=self.settings.chunking.component_merge_threshold,
+            max_component_tokens=self.settings.chunking.max_component_tokens,
+        )
         self.enrichment_service = EnrichmentService(
             observability=self.observability,
             latency=stage_latency,
             summary_generator=self.summary_generator,
+            use_llm_summarization=self.settings.use_llm_summarization,  # NEW: LLM-based summarization
         )
-        self.vector_service = VectorService(observability=self.observability, latency=stage_latency)
+        self.vector_store = InMemoryVectorStore()
+        self.vector_service = VectorService(
+            observability=self.observability,
+            latency=stage_latency,
+            embedding_generator=self.embedding_generator,
+            vector_store=self.vector_store,
+        )
 
         artifacts_dir = Path(
             os.getenv("RUN_ARTIFACTS_DIR", base_dir / "artifacts" / "runs")
@@ -72,7 +157,7 @@ class AppContainer:
 
         self.pipeline_runner = PipelineRunner(
             ingestion=self.ingestion_service,
-            extraction=self.extraction_service,
+            parsing=self.parsing_service,
             cleaning=self.cleaning_service,
             chunking=self.chunking_service,
             enrichment=self.enrichment_service,

@@ -27,5 +27,10 @@ class LoggingObservabilityRecorder(ObservabilityRecorder):
         self._logger = logger or _build_logger()
 
     def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
-        payload = json.dumps(details or {})
-        self._logger.info("stage=%s details=%s", stage, payload)
+        """Record event with human-readable formatted output."""
+        if details:
+            # Use pretty-printed JSON for readability
+            payload = json.dumps(details, indent=2, ensure_ascii=False)
+            self._logger.info("stage=%s details=\n%s", stage, payload)
+        else:
+            self._logger.info("stage=%s (no details)", stage)

@@ -9,6 +9,9 @@ TEST_ARTIFACTS_DIR.mkdir(exist_ok=True)
 os.environ["RUN_ARTIFACTS_DIR"] = str(TEST_ARTIFACTS_DIR)
 os.environ["INGESTION_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "ingestion")
 os.environ["DOCUMENT_STORAGE_DIR"] = str(TEST_ARTIFACTS_DIR / "documents")
+os.environ["LLM__PROVIDER"] = "mock"
+os.environ["EMBEDDINGS__PROVIDER"] = "mock"
+os.environ.setdefault("CHUNKING__INCLUDE_IMAGES", "false")
 
 
 def _clear_artifacts() -> None:
@@ -33,7 +36,7 @@ client = TestClient(app)
 def test_dashboard_page_loads():
     response = client.get("/dashboard")
     assert response.status_code == 200
-    assert "Manual test harness" in response.text
+    assert "Manual Test Harness" in response.text
 
 
 def test_dashboard_upload_traces_pipeline():
@@ -54,7 +57,7 @@ def test_dashboard_upload_traces_pipeline():
         fragment = client.get(f"/dashboard/runs/{run_id}/fragment")
         assert fragment.status_code == 200
         if 'data-run-status="completed"' in fragment.text:
-            assert "Stage breakdown" in fragment.text
+            assert "Detailed Stage Outputs" in fragment.text
             assert "chunking" in fragment.text
             assert "cleaning" in fragment.text
             assert "vectorization" in fragment.text

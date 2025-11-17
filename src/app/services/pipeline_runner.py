@@ -10,18 +10,18 @@ from ..domain.run_models import PipelineResult, PipelineStage
 from .chunking_service import ChunkingService
 from .cleaning_service import CleaningService
 from .enrichment_service import EnrichmentService
-from .extraction_service import ExtractionService
+from .parsing_service import ParsingService
 from .ingestion_service import IngestionService
 from .vector_service import VectorService
 
 
 class PipelineRunner:
-    """Co-ordinates the ingestion -> extraction -> chunking -> enrichment flow."""
+    """Co-ordinates the ingestion -> parsing -> chunking -> enrichment flow."""
 
     def __init__(
         self,
         ingestion: IngestionService,
-        extraction: ExtractionService,
+        parsing: ParsingService,
         cleaning: CleaningService,
         chunking: ChunkingService,
         enrichment: EnrichmentService,
@@ -29,7 +29,7 @@ class PipelineRunner:
         observability: ObservabilityRecorder,
     ) -> None:
         self.ingestion = ingestion
-        self.extraction = extraction
+        self.parsing = parsing
         self.cleaning = cleaning
         self.chunking = chunking
         self.enrichment = enrichment
@@ -38,7 +38,7 @@ class PipelineRunner:
 
     STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
         ("ingestion", "Ingestion"),
-        ("extraction", "Extraction"),
+        ("parsing", "Parsing"),
         ("cleaning", "Cleaning"),
         ("chunking", "Chunking"),
         ("enrichment", "Enrichment"),
@@ -77,20 +77,43 @@ class PipelineRunner:
         )
 
         stage_start = perf_counter()
-        document = self.extraction.extract(document, file_bytes=file_bytes)
+        document = self.parsing.parse(document, file_bytes=file_bytes)
+        pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
+        parsed_pages_meta = document.metadata.get("parsed_pages", {})
+        
+        # Build page details with components
+        page_details = []
+        for page in document.pages:
+            page_data = {
+                "page_number": page.page_number,
+                "text_preview": page.text[:500],
+            }
+            
+            # Add components if available
+            parsed_page_data = parsed_pages_meta.get(str(page.page_number)) or parsed_pages_meta.get(page.page_number)
+            if parsed_page_data:
+                components = parsed_page_data.get("components", [])
+                # Sort components by order
+                sorted_components = sorted(components, key=lambda c: c.get("order", 0))
+                page_data["components"] = sorted_components
+                page_data["component_count"] = len(sorted_components)
+                # Count by type
+                page_data["component_summary"] = {
+                    "text": len([c for c in sorted_components if c.get("type") == "text"]),
+                    "image": len([c for c in sorted_components if c.get("type") == "image"]),
+                    "table": len([c for c in sorted_components if c.get("type") == "table"]),
+                }
+            
+            page_details.append(page_data)
+        
         register_stage(
             PipelineStage(
-                name="extraction",
-                title="Extraction",
+                name="parsing",
+                title="Parsing",
                 details={
                     "page_count": len(document.pages),
-                    "pages": [
-                        {
-                            "page_number": page.page_number,
-                            "text_preview": page.text[:500],
-                        }
-                        for page in document.pages
-                    ],
+                    "pages": page_details,
+                    "pixmap_metrics": pixmap_metrics or {},
                 },
                 duration_ms=(perf_counter() - stage_start) * 1000,
             )
