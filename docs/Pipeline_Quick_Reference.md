@@ -14,15 +14,15 @@ graph TB
         PDF[PDF Document]
     end
     
-    subgraph Parsing["Stage 1: Parsing (Vision LLM)"]
+    subgraph Parsing["Stage 1: Parsing (LLM with Vision)"]
         PDF --> PageImages[300 DPI Page Images]
-        PageImages --> VisionLLM[Vision LLM<br/>GPT-4 Vision]
+        PageImages --> VisionLLM[LLM<br/>GPT-4o-mini]
         VisionLLM --> ParsedPage[ParsedPage<br/>Structured JSON]
         ParsedPage --> Components[Components:<br/>- Text blocks<br/>- Tables + summaries<br/>- Images + descriptions<br/>- Page summary]
     end
     
-    subgraph Cleaning["Stage 2: Cleaning (Text LLM)"]
-        Components --> CleaningLLM[Text LLM<br/>GPT-4o]
+    subgraph Cleaning["Stage 2: Cleaning (LLM)"]
+        Components --> CleaningLLM[LLM<br/>GPT-4o-mini]
         CleaningLLM --> CleanedSegments[Cleaned Segments<br/>Per Component]
         CleanedSegments --> Metadata[+ Review flags<br/>+ Cleaning ops<br/>+ Token counts]
     end
@@ -32,13 +32,13 @@ graph TB
         ComponentChunking --> Chunks[Chunks with<br/>Component Metadata]
     end
     
-    subgraph Enrichment["Stage 4: Enrichment (Text LLM)"]
+    subgraph Enrichment["Stage 4: Enrichment (LLM)"]
         Chunks --> DocSummary[Document Summary<br/>Generation]
-        DocSummary --> SummaryLLM[Text LLM<br/>GPT-4o]
+        DocSummary --> SummaryLLM[LLM<br/>GPT-4o-mini]
         SummaryLLM --> DocSum[3-4 sentence<br/>document summary]
         
         Chunks --> ChunkSummary[Chunk Summary<br/>Generation]
-        ChunkSummary --> ChunkLLM[Text LLM<br/>GPT-4o]
+        ChunkSummary --> ChunkLLM[LLM<br/>GPT-4o-mini]
         ChunkLLM --> ChunkSum[2-sentence<br/>chunk summaries]
         
         DocSum --> Contextualized[Contextualized Text<br/>with Hierarchical Context]
@@ -59,7 +59,7 @@ graph TB
 ```
 
 **Key Points**:
-- **Red nodes** = LLM-powered transformations (parsing, cleaning, summarization)
+- **Red nodes** = LLM-powered transformations (parsing, cleaning, summarization) - all use the same LLM (GPT-4o-mini) with vision capabilities
 - **Orange nodes** = Embedding model (not a generative LLM, but still AI-powered)
 - **White nodes** = Data or rule-based processing (no AI)
 
@@ -83,7 +83,7 @@ OUT: Document with status="ingested"
 IN:  Ingested document + file bytes
 OUT: Document with pages[], status="parsed"
      + page.text (raw text from pdfplumber)
-     + document.metadata.parsed_pages (structured components from vision LLM)
+     + document.metadata.parsed_pages (structured components from LLM with vision)
        - Each ParsedPage includes:
          * components[] (text, tables, images with metadata)
          * table_summary (for each table component)
@@ -165,21 +165,22 @@ Note: Embeds contextualized_text for better retrieval, preserves cleaned_text fo
 
 ## LLM Integration Points
 
-### Parsing (Vision LLM)
+### Parsing (LLM with Vision)
 - **Adapter**: `ImageAwareParsingAdapter`
 - **Prompts**: `docs/prompts/parsing/system.md` + `user.md`
 - **Input**: Page image (PNG) + optional raw text
 - **Output**: `ParsedPage` (components array with text, images, tables)
 - **Stored in**: `document.metadata.parsed_pages[page_num]`
+- **Note**: Uses the same LLM (GPT-4o-mini) configured for all stages, with vision capabilities enabled
 
-### Cleaning (Text LLM)
+### Cleaning (LLM)
 - **Adapter**: `CleaningAdapter`
 - **Prompts**: `docs/prompts/cleaning/system.md` + `user.md`
 - **Input**: `ParsedPage.components` array (from parsing)
 - **Output**: `CleanedPage` (segments with needs_review flags)
 - **Stored in**: `document.metadata.cleaning_metadata_by_page[page_num].llm_segments`
 
-### Enrichment (Text LLM)
+### Enrichment (LLM)
 - **Adapter**: `LlamaIndexSummaryAdapter` ✅ Implemented
 - **Prompts**: `docs/prompts/summarization/system.md`
 - **Input**: 
@@ -508,7 +509,7 @@ CHUNKING__CHUNK_OVERLAP=50
 3. Check `document.metadata.parsed_pages[N].raw_text` (markdown representation)
 4. Review `docs/prompts/parsing/system.md` (especially image extraction directives)
 5. Check pixmap quality in `artifacts/pixmaps/<doc_id>/page_N.png`
-6. Check if vision LLM is enabled (`ImageAwareParsingAdapter` in container)
+6. Check if LLM parsing is enabled (`ImageAwareParsingAdapter` in container)
 
 ### Problem: Chunks are too large/small
 1. Check current chunk size: `ChunkingService.chunk_size` (default 200)
@@ -542,12 +543,12 @@ CHUNKING__CHUNK_OVERLAP=50
 | File | Purpose |
 |------|---------|
 | `src/app/services/pipeline_runner.py` | Orchestrates all stages, creates PipelineResult |
-| `src/app/services/parsing_service.py` | Page extraction + vision LLM parsing |
+| `src/app/services/parsing_service.py` | Page extraction + LLM parsing with vision |
 | `src/app/services/cleaning_service.py` | Text normalization + segment flagging |
 | `src/app/services/chunking_service.py` | Fixed-size chunk splitting |
 | `src/app/services/enrichment_service.py` | Chunk/document summarization |
 | `src/app/services/vector_service.py` | Embedding generation |
-| `src/app/adapters/llama_index/parsing_adapter.py` | Vision LLM integration |
+| `src/app/adapters/llama_index/parsing_adapter.py` | LLM integration with vision capabilities |
 | `src/app/adapters/llama_index/cleaning_adapter.py` | Cleaning LLM integration |
 | `src/app/container.py` | Dependency injection, wiring |
 | `src/app/domain/models.py` | Document, Page, Chunk, Metadata schemas |

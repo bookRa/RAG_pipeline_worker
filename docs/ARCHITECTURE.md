@@ -54,8 +54,8 @@ src/app/
 ├── adapters/            # Primary adapters (LLM-powered via LlamaIndex)
 │   ├── llama_index/     # LlamaIndex-based adapters
 │   │   ├── bootstrap.py           # LlamaIndex configuration
-│   │   ├── parsing_adapter.py     # ImageAwareParsingAdapter (vision LLM)
-│   │   ├── cleaning_adapter.py    # CleaningAdapter (text LLM)
+│   │   ├── parsing_adapter.py     # ImageAwareParsingAdapter (LLM with vision)
+│   │   ├── cleaning_adapter.py    # CleaningAdapter (LLM, optionally with vision)
 │   │   ├── summary_adapter.py     # LlamaIndexSummaryAdapter
 │   │   └── embedding_adapter.py   # LlamaIndexEmbeddingAdapter
 │   ├── pdf_parser.py    # Legacy fallback parsers
@@ -152,8 +152,8 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 | Stage | Class | Description | Status & Telemetry |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | Records the upload event, persists raw bytes through the `IngestionRepository`, computes checksum, and stamps `ingested_at`. | Sets `Document.status = "ingested"` and emits `stage="ingestion"` events containing filename, type, and size. |
-| Parsing | `ParsingService` | Renders 300 DPI page pixmaps via `PixmapFactory`, then invokes `ImageAwareParsingAdapter` (vision LLM) to extract structured components (text, tables, images). Produces `ParsedPage` with table summaries, page summaries, and component metadata. Stores pixmaps under `artifacts/pixmaps/`. | Sets status to `"parsed"` and reports parsed component count, pixmap generation metrics, and LLM latency. |
-| Cleaning | `CleaningService` | Invokes `CleaningAdapter` (LlamaIndex text LLM) with parsed components. Normalizes text, flags segments for review (`needs_review`), and generates cleaned text per page. Optionally uses vision for layout-aware cleaning. | Sets status to `"cleaned"` and reports segment count, flagged segments, and cleaning metadata stored in `cleaning_metadata_by_page`. |
+| Parsing | `ParsingService` | Renders 300 DPI page pixmaps via `PixmapFactory`, then invokes `ImageAwareParsingAdapter` (LLM with vision) to extract structured components (text, tables, images). Produces `ParsedPage` with table summaries, page summaries, and component metadata. Stores pixmaps under `artifacts/pixmaps/`. | Sets status to `"parsed"` and reports parsed component count, pixmap generation metrics, and LLM latency. |
+| Cleaning | `CleaningService` | Invokes `CleaningAdapter` (LLM) with parsed components. Normalizes text, flags segments for review (`needs_review`), and generates cleaned text per page. Optionally uses vision for layout-aware cleaning when `USE_VISION_CLEANING=true`. | Sets status to `"cleaned"` and reports segment count, flagged segments, and cleaning metadata stored in `cleaning_metadata_by_page`. |
 | Chunking | `ChunkingService` | Supports three strategies: `component` (preserves table/image boundaries), `hybrid`, or `fixed` (legacy overlap). Component strategy groups small components and splits large ones. Attaches component metadata (type, order, summary, description) to chunks. | Sets status to `"chunked"` and reports strategy used, component grouping stats, and chunk count per component type. |
 | Enrichment | `EnrichmentService` | Generates document-level summary from page summaries via `LlamaIndexSummaryAdapter`. Creates contextualized text for each chunk using Anthropic's contextual retrieval pattern: `[Document: X \| Page: Y \| Section: Z \| Type: T]\n\nchunk_text`. | Sets status to `"enriched"` and reports document summary generation, chunk summaries, and contextualized text creation metrics. |
 | Vectorization | `VectorService` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`. Preserves both context-enriched text for retrieval and original cleaned text for generation. Stores vectors in `chunk.metadata.extra.vector`. | Sets status to `"vectorized"` and reports embedding dimension, count of chunks using contextualized text, and sample vectors. |
@@ -166,9 +166,9 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 
 ### LlamaIndex-Powered Adapters
 
-- **ParsingLLM (ImageAwareParsingAdapter)** → Wraps OpenAI vision LLM via LlamaIndex `OpenAIMultiModal`. Accepts 300 DPI pixmaps and produces structured `ParsedPage` output using `as_structured_llm()` for reliable JSON extraction. Loads prompts from `docs/prompts/parsing/`. Supports streaming for observability or native JSON mode for reliability.
+- **ParsingLLM (ImageAwareParsingAdapter)** → Uses LLM with vision capabilities (same model as other stages, GPT-4o-mini by default). Accepts 300 DPI pixmaps via `ChatMessage` with `ImageBlock` content and produces structured `ParsedPage` output using `as_structured_llm()` for reliable JSON extraction. Loads prompts from `docs/prompts/parsing/`. Supports streaming for observability or native JSON mode for reliability.
 
-- **CleaningLLM (CleaningAdapter)** → Uses LlamaIndex text LLM with `as_structured_llm(CleanedPage)` to normalize parsed content, flag segments for human review, and generate cleaned text. Optionally accepts pixmap paths for vision-based cleaning.
+- **CleaningLLM (CleaningAdapter)** → Uses LLM (same model as other stages) with `as_structured_llm(CleanedPage)` to normalize parsed content, flag segments for human review, and generate cleaned text. Optionally accepts pixmap paths for vision-based cleaning when `USE_VISION_CLEANING=true`.
 
 - **SummaryGenerator (LlamaIndexSummaryAdapter)** → Generates LLM-based summaries for chunks and documents using hierarchical context. Uses separate prompts for document summaries (`summarization/document_summary.md`, 3-4 sentences) and chunk summaries (`summarization/chunk_summary.md`, 2 sentences). Returns plain text summaries with no structured output.
 
@@ -176,7 +176,7 @@ _Figure 2: Hexagonal layering—requests travel downward through application lay
 
 ### Legacy Adapters
 
-- **DocumentParser** → Implemented by `PdfParserAdapter`, `DocxParserAdapter`, and `PptParserAdapter`. Used as fallback when vision LLM parsing fails or is disabled. Only the PDF adapter talks to `pdfplumber`.
+- **DocumentParser** → Implemented by `PdfParserAdapter`, `DocxParserAdapter`, and `PptParserAdapter`. Used as fallback when LLM parsing with vision fails or is disabled. Only the PDF adapter talks to `pdfplumber`.
 
 ### Infrastructure Adapters
 

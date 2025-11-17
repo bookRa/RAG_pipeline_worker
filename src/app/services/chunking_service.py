@@ -51,7 +51,7 @@ class ChunkingService:
         
         # Route to appropriate chunking strategy
         if self.strategy == "component":
-            return self._chunk_by_components(document)
+            return self._chunk_by_components(document, size, overlap)
         elif self.strategy == "hybrid":
             return self._chunk_hybrid(document, size, overlap)
         else:
@@ -214,10 +214,14 @@ class ChunkingService:
             return cursor
         return idx
     
-    def _chunk_by_components(self, document: Document) -> Document:
+    def _chunk_by_components(self, document: Document, size: int | None = None, overlap: int | None = None) -> Document:
         """Component-aware chunking strategy: chunk based on parsed components."""
         updated_document = document
         parsed_pages_meta = document.metadata.get("parsed_pages", {})
+        
+        # Use provided size/overlap or fall back to instance defaults
+        chunk_size = size if size is not None else self.chunk_size
+        chunk_overlap = overlap if overlap is not None else self.chunk_overlap
         
         total_chunks_created = 0
         
@@ -235,7 +239,7 @@ class ChunkingService:
                 )
                 # Fallback to fixed-size for this page
                 updated_document = self._chunk_page_fixed_size(
-                    updated_document, page, self.chunk_size, self.chunk_overlap
+                    updated_document, page, chunk_size, chunk_overlap
                 )
                 continue
             

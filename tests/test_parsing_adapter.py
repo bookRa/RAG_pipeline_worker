@@ -130,7 +130,7 @@ def test_image_adapter_uses_multimodal_when_pixmap(tmp_path):
                 assert has_image, "Chat message should contain ImageBlock in content list"
     
     # Verify vision_llm was not used (we use same LLM now)
-    assert len(vision_llm.complete_calls) == 0, "Vision LLM should not be used (same LLM handles vision)"
+    assert len(vision_llm.complete_calls) == 0, "Separate vision_llm should not be used (same LLM handles vision)"
     
     # Verify result is a ParsedPage
     assert isinstance(result, ParsedPage)

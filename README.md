@@ -11,8 +11,8 @@ The pipeline executes the following stages in order. Each service returns a new 
 | Stage | Service (`src/app/services`) | Resulting `Document.status` | Key Outputs |
 | --- | --- | --- | --- |
 | Ingestion | `IngestionService` | `ingested` | Copies raw bytes to `artifacts/ingestion/<document_id>/`, records checksum + content metadata |
-| Parsing | `ParsingService` | `parsed` | Uses vision LLM via `ImageAwareParsingAdapter` to extract structured content from 300 DPI page images. Produces `ParsedPage` components (text, tables, images) with table summaries and page summaries. Stores pixmaps under `artifacts/pixmaps/` |
-| Cleaning | `CleaningService` | `cleaned` | Uses `CleaningAdapter` (LlamaIndex text LLM) to normalize parsed content, flag segments for review, and generate cleaned text per page stored in `cleaning_metadata_by_page` |
+| Parsing | `ParsingService` | `parsed` | Uses LLM with vision capabilities via `ImageAwareParsingAdapter` to extract structured content from 300 DPI page images. Produces `ParsedPage` components (text, tables, images) with table summaries and page summaries. Stores pixmaps under `artifacts/pixmaps/` |
+| Cleaning | `CleaningService` | `cleaned` | Uses `CleaningAdapter` (LLM) to normalize parsed content, flag segments for review, and generate cleaned text per page stored in `cleaning_metadata_by_page`. Optionally uses vision for layout-aware cleaning when `USE_VISION_CLEANING=true` |
 | Chunking | `ChunkingService` | `chunked` | Supports three strategies: `component` (preserves table/image boundaries), `hybrid`, or `fixed` (legacy overlap). Attaches component metadata (type, summary, description) to each chunk |
 | Enrichment | `EnrichmentService` | `enriched` | Uses `LlamaIndexSummaryAdapter` to generate document-level summary from page summaries, then creates contextualized text for each chunk following Anthropic's contextual retrieval pattern |
 | Vectorization | `VectorService` | `vectorized` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`, preserving both context-enriched and original text for retrieval and generation |
@@ -122,8 +122,8 @@ RAG_pipeline_worker/
 - **Application layer (`src/app/application`)** – Protocols in `interfaces.py` define ports for document parsers, summary generators, schedulers, and observability recorders. Use cases (Upload/List/Get) translate HTTP concerns into pipeline invocations.
 - **Services (`src/app/services`)** – Each class encapsulates one stage of the pipeline and depends strictly on domain models + ports. `PipelineRunner` strings the stages together, and `PipelineRunManager` handles persistence plus async execution via the injected `TaskScheduler`.
 - **Adapters (`src/app/adapters`)** – Contain infrastructure-specific code wrapped around LlamaIndex:
-  - `ImageAwareParsingAdapter` wraps OpenAI vision LLM for multi-modal parsing with structured output
-  - `CleaningAdapter` uses LlamaIndex LLM for text normalization and segment flagging
+  - `ImageAwareParsingAdapter` uses LLM with vision capabilities for multi-modal parsing with structured output
+  - `CleaningAdapter` uses LLM for text normalization and segment flagging (optionally with vision)
   - `LlamaIndexSummaryAdapter` generates LLM-based summaries for chunks and documents
   - `LlamaIndexEmbeddingAdapter` creates embeddings via LlamaIndex settings
   - Legacy parsers (`PdfParserAdapter`, `DocxParserAdapter`, `PptParserAdapter`) remain for fallback scenarios
@@ -165,7 +165,7 @@ All persistence paths default to the `artifacts/` directory inside the repo but 
 - `PIXMAP_STORAGE_DIR` → 300 DPI page images (`artifacts/pixmaps/<document_id>/page_N.png`)
 - `PIPELINE_STAGE_LATENCY` → optional float (seconds) used to simulate slow stages and make dashboard updates easier to see
 
-The dashboard stores uploaded files under `static/uploads/` for inline previews. Pixmaps are generated during parsing for vision LLM input and stored for traceability. Clean up the `artifacts/` and `static/uploads/` directories periodically during local development if disk space becomes an issue.
+The dashboard stores uploaded files under `static/uploads/` for inline previews. Pixmaps are generated during parsing for LLM vision input and stored for traceability. Clean up the `artifacts/` and `static/uploads/` directories periodically during local development if disk space becomes an issue.
 
 ---
 

@@ -9,7 +9,7 @@ All LLM prompts are stored as markdown files under this directory, tracked in gi
 ```
 docs/prompts/
 ├── parsing/
-│   ├── system.md               # Vision LLM instructions for extracting components
+│   ├── system.md               # LLM instructions for extracting components (with vision)
 │   └── user.md                 # Output schema and examples
 ├── cleaning/
 │   ├── system.md               # Text normalization rules and review criteria
@@ -24,7 +24,7 @@ docs/prompts/
 
 ## How Prompts Are Used in the Pipeline
 
-### 1. Parsing Stage (Vision LLM)
+### 1. Parsing Stage (LLM with Vision)
 
 **Adapter**: `ImageAwareParsingAdapter` (`src/app/adapters/llama_index/parsing_adapter.py`)
 
@@ -68,7 +68,7 @@ class ImageAwareParsingAdapter:
 
 ---
 
-### 2. Cleaning Stage (Text LLM)
+### 2. Cleaning Stage (LLM)
 
 **Adapter**: `CleaningAdapter` (`src/app/adapters/llama_index/cleaning_adapter.py`)
 
@@ -104,7 +104,7 @@ class CleaningAdapter:
 
 ---
 
-### 3. Summarization Stage (Text LLM)
+### 3. Summarization Stage (LLM)
 
 **Adapter**: `LlamaIndexSummaryAdapter` (`src/app/adapters/llama_index/summary_adapter.py`)
 

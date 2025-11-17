@@ -21,9 +21,11 @@ This document explains how Large Language Models (LLMs) are integrated throughou
 
 The RAG pipeline uses LLMs at multiple stages to transform raw documents into semantically-rich, searchable content:
 
-- **Parsing Stage**: Vision LLM extracts structured components (text, tables, images) from PDF pages
-- **Cleaning Stage**: Text LLM normalizes content and flags segments for human review
-- **Enrichment Stage**: Text LLM generates summaries at document and chunk levels
+- **Parsing Stage**: LLM with vision capabilities extracts structured components (text, tables, images) from PDF pages
+- **Cleaning Stage**: LLM normalizes content and flags segments for human review (optionally with vision for layout-aware cleaning)
+- **Enrichment Stage**: LLM generates summaries at document and chunk levels
+
+**Important**: All stages use the same LLM (GPT-4o-mini by default, configurable via `LLM__MODEL`). The model handles reasoning, image processing, and structured outputs through a unified interface.
 
 All LLM integrations follow hexagonal architecture principles, isolating LLM concerns to the adapter layer while keeping business logic clean and testable.
 
@@ -58,8 +60,9 @@ All LLM integrations follow hexagonal architecture principles, isolating LLM con
 │  │  ImageAware      │  │   Cleaning       │  │ LlamaIndex│  │
 │  │ ParsingAdapter   │  │    Adapter       │  │  Summary  │  │
 │  │                  │  │                  │  │  Adapter  │  │
-│  │ - Vision LLM     │  │ - Text LLM       │  │           │  │
-│  │ - Structured out │  │ - Structured out │  │ - Text LLM│  │
+│  │ - LLM + Vision    │  │ - LLM            │  │           │  │
+│  │ - Structured out │  │ - Structured out │  │ - LLM     │  │
+│  │                  │  │ - Optional vision│  │           │  │
 │  └──────────────────┘  └──────────────────┘  └──────────┘  │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -69,8 +72,10 @@ All LLM integrations follow hexagonal architecture principles, isolating LLM con
 │                   INFRASTRUCTURE LAYER                       │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │         LlamaIndex Client (Shared LLM Instance)      │   │
-│  │  - OpenAI GPT-4 Vision (parsing)                     │   │
-│  │  - OpenAI GPT-4o (text processing)                   │   │
+│  │  - OpenAI GPT-4o-mini (unified model for all tasks) │   │
+│  │    * Vision capabilities (parsing)                    │   │
+│  │    * Text processing (cleaning, summarization)       │   │
+│  │    * Structured outputs (all stages)                │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -94,15 +99,15 @@ graph TB
         PDF[PDF Document]
     end
     
-    subgraph Parsing["Stage 1: Parsing (Vision LLM)"]
+    subgraph Parsing["Stage 1: Parsing (LLM with Vision)"]
         PDF --> PageImages[300 DPI Page Images]
-        PageImages --> VisionLLM[Vision LLM<br/>GPT-4 Vision]
+        PageImages --> VisionLLM[LLM<br/>GPT-4o-mini]
         VisionLLM --> ParsedPage[ParsedPage<br/>Structured JSON]
         ParsedPage --> Components[Components:<br/>- Text blocks<br/>- Tables + summaries<br/>- Images + descriptions<br/>- Page summary]
     end
     
-    subgraph Cleaning["Stage 2: Cleaning (Text LLM)"]
-        Components --> CleaningLLM[Text LLM<br/>GPT-4o]
+    subgraph Cleaning["Stage 2: Cleaning (LLM)"]
+        Components --> CleaningLLM[LLM<br/>GPT-4o-mini]
         CleaningLLM --> CleanedSegments[Cleaned Segments<br/>Per Component]
         CleanedSegments --> Metadata[+ Review flags<br/>+ Cleaning ops<br/>+ Token counts]
     end
@@ -112,13 +117,13 @@ graph TB
         ComponentChunking --> Chunks[Chunks with<br/>Component Metadata]
     end
     
-    subgraph Enrichment["Stage 4: Enrichment (Text LLM)"]
+    subgraph Enrichment["Stage 4: Enrichment (LLM)"]
         Chunks --> DocSummary[Document Summary<br/>Generation]
-        DocSummary --> SummaryLLM[Text LLM<br/>GPT-4o]
+        DocSummary --> SummaryLLM[LLM<br/>GPT-4o-mini]
         SummaryLLM --> DocSum[3-4 sentence<br/>document summary]
         
         Chunks --> ChunkSummary[Chunk Summary<br/>Generation]
-        ChunkSummary --> ChunkLLM[Text LLM<br/>GPT-4o]
+        ChunkSummary --> ChunkLLM[LLM<br/>GPT-4o-mini]
         ChunkLLM --> ChunkSum[2-sentence<br/>chunk summaries]
         
         DocSum --> Contextualized[Contextualized Text<br/>with Hierarchical Context]
@@ -142,11 +147,13 @@ graph TB
 
 | Stage | Input | LLM Used | Output | Key Benefit |
 |-------|-------|----------|--------|-------------|
-| **Parsing** | Page pixmap (image) | GPT-4 Vision | `ParsedPage` with components | Understands visual layout, extracts tables accurately |
-| **Cleaning** | Parsed components | GPT-4o | Cleaned text segments + review flags | Normalizes formatting, identifies problematic content |
-| **Enrichment (Doc)** | All page summaries | GPT-4o | 3-4 sentence document summary | Captures overall document purpose and scope |
-| **Enrichment (Chunk)** | Chunk text + context | GPT-4o | 2-sentence chunk summary | Explains chunk content in relation to document |
+| **Parsing** | Page pixmap (image) | GPT-4o-mini (with vision) | `ParsedPage` with components | Understands visual layout, extracts tables accurately |
+| **Cleaning** | Parsed components | GPT-4o-mini (optionally with vision) | Cleaned text segments + review flags | Normalizes formatting, identifies problematic content |
+| **Enrichment (Doc)** | All page summaries | GPT-4o-mini | 3-4 sentence document summary | Captures overall document purpose and scope |
+| **Enrichment (Chunk)** | Chunk text + context | GPT-4o-mini | 2-sentence chunk summary | Explains chunk content in relation to document |
 | **Vectorization** | Contextualized text | text-embedding-3-large | 768-dim vector | Enables semantic search with hierarchical context |
+
+**Note**: All LLM stages use the same model (GPT-4o-mini by default). The model handles vision, text processing, and structured outputs through a unified interface.
 
 ---
 
@@ -158,7 +165,7 @@ graph TB
 
 **Interface**: `ParsingLLM` protocol
 
-**Purpose**: Extract structured content from PDF page images using vision LLM
+**Purpose**: Extract structured content from PDF page images using LLM with vision capabilities
 
 **Code Pattern**:
 
@@ -188,11 +195,13 @@ class ImageAwareParsingAdapter:
         return response.raw  # Already a validated ParsedPage!
 ```
 
-**Why Vision LLM?**
+**Why Use Vision Capabilities?**
 - Tables often have complex visual layouts that text extraction misses
 - Images/diagrams provide crucial context
 - Headers/footers can be identified by position
 - Multi-column layouts are understood correctly
+
+**Note**: The same LLM (GPT-4o-mini) handles vision through `ChatMessage` with `ImageBlock` content, not a separate "vision model".
 
 **Prompt**: See `docs/prompts/parsing/` for system and user prompts.
 
@@ -204,7 +213,7 @@ class ImageAwareParsingAdapter:
 
 **Interface**: `CleaningLLM` protocol
 
-**Purpose**: Normalize parsed content and flag segments needing human review
+**Purpose**: Normalize parsed content and flag segments needing human review. Optionally uses vision for layout-aware cleaning when `USE_VISION_CLEANING=true`.
 
 **Code Pattern**:
 
@@ -351,8 +360,8 @@ All LLM prompts are stored as **markdown files** under `docs/prompts/`, organize
 docs/prompts/
 ├── README.md                          # Prompt tuning guide
 ├── parsing/
-│   ├── system.md                      # Vision LLM system instructions
-│   └── user.md                        # Vision LLM user message template
+│   ├── system.md                      # LLM system instructions for parsing
+│   └── user.md                        # LLM user message template for parsing
 ├── cleaning/
 │   ├── system.md                      # Cleaning LLM system instructions
 │   └── user.md                        # Cleaning LLM user message template
@@ -450,7 +459,7 @@ def parse_page(self, *, document_id, page_number, raw_text, pixmap_path) -> Pars
         response = structured_llm.chat(messages)
         return response.raw
     except Exception as exc:
-        logger.warning("Vision LLM parsing failed, falling back to text-only: %s", exc)
+            logger.warning("LLM parsing with vision failed, falling back to text-only: %s", exc)
         # Fallback: treat entire page as single text component
         return ParsedPage(
             components=[
@@ -579,7 +588,7 @@ See `tests_contracts/test_openai_contracts.py` for examples.
 | **Aspect** | **Details** |
 |------------|-------------|
 | **Architecture** | Hexagonal (ports & adapters) isolates LLM concerns to adapter layer |
-| **Stages** | Parsing (vision LLM), Cleaning (text LLM), Enrichment (text LLM), Vectorization (embedding model) |
+| **Stages** | Parsing (LLM with vision), Cleaning (LLM, optionally with vision), Enrichment (LLM), Vectorization (embedding model) |
 | **Prompts** | Stored as markdown files in `docs/prompts/`, loaded at runtime |
 | **Structured Outputs** | Used for parsing and cleaning to ensure valid JSON |
 | **Error Handling** | All adapters have fallbacks (text-only parsing, heuristic cleaning, truncated summaries) |

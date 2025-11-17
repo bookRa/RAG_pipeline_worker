@@ -158,7 +158,7 @@ The `vectorization.json` stage file is useful for debugging without loading the 
 
 **Key Insight**: The parser provides **TWO representations**:
 - `page.text`: Simple string (from pdfplumber)
-- `metadata.parsed_pages[N].components`: Structured breakdown (from vision LLM)
+- `metadata.parsed_pages[N].components`: Structured breakdown (from LLM with vision)
 
 **Feeds into**: Cleaning stage (uses `parsed_pages` metadata)
 
@@ -343,7 +343,7 @@ The `vectorization.json` stage file is useful for debugging without loading the 
 
 **Location**: `docs/prompts/parsing/system.md` + `user.md`
 
-**Purpose**: Instruct vision LLM to extract structured components from page images
+**Purpose**: Instruct LLM (with vision capabilities) to extract structured components from page images
 
 **Key Directives** (from `system.md`):
 - "You must be THOROUGH and extract ALL content from the page"
@@ -574,7 +574,7 @@ It depends on your use case:
 
 **The Process**:
 
-1. **Parsing stage** (vision LLM) identifies components:
+1. **Parsing stage** (LLM with vision) identifies components:
    - Component 1: Heading "NONRESIDENT TRAINING COURSE"
    - Component 2: Paragraph "September 2015"
    - Component 3: Heading "Blueprint Reading and Sketching"

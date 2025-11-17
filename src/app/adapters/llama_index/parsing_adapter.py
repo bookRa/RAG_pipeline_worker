@@ -240,7 +240,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 return parsed_page
         except Exception as exc:
             logger.warning(
-                "Structured vision LLM parsing failed for doc=%s page=%s: %s",
+                "Structured LLM parsing with vision failed for doc=%s page=%s: %s",
                 document_id,
                 page_number,
                 exc,
