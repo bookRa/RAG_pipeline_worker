@@ -26,11 +26,20 @@ class LoggingObservabilityRecorder(ObservabilityRecorder):
     def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or _build_logger()
 
-    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
+    def record_event(
+        self, 
+        stage: str, 
+        details: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
         """Record event with human-readable formatted output."""
+        log_parts = [f"stage={stage}"]
+        if trace_id:
+            log_parts.append(f"trace_id={trace_id}")
         if details:
             # Use pretty-printed JSON for readability
             payload = json.dumps(details, indent=2, ensure_ascii=False)
-            self._logger.info("stage=%s details=\n%s", stage, payload)
+            log_parts.append(f"details=\n{payload}")
+            self._logger.info(" ".join(log_parts))
         else:
-            self._logger.info("stage=%s (no details)", stage)
+            self._logger.info(" ".join(log_parts))

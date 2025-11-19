@@ -1,0 +1,8 @@
+{
+  "_comment": "Ground truth labels for cleaning review flags evaluation",
+  "_instructions": "Add document IDs as keys with arrays of segment IDs that should be flagged for review",
+  "_example": {
+    "document-id-here": ["segment-id-1", "segment-id-2"]
+  }
+}
+

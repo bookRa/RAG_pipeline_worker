@@ -288,13 +288,44 @@ PIPELINE_STAGE_LATENCY=0.05 uvicorn src.app.main:app --reload
 ### Run the Tests
 
 ```bash
-pytest              # full suite
-pytest tests/test_architecture.py  # enforce hexagonal import rules
+pytest              # Fast unit tests (default, uses mocks, completes in seconds)
+pytest tests/test_architecture.py  # Enforce hexagonal import rules
 ```
 
-- `tests/test_services.py` covers every pipeline stage plus immutability guarantees.
-- `tests/test_dashboard.py` exercises the background-run workflow.
-- `tests/test_pdf_parser.py` asserts that `pdfplumber` parsing works and errors are handled gracefully.
+**By default, all tests use mock LLM providers and complete in seconds.** No API keys required.
+
+#### Test Categories
+
+- **Unit Tests** (default): Fast tests using mocks - `pytest` runs these automatically
+- **Contract Tests**: Live API integration tests - `RUN_CONTRACT_TESTS=1 pytest -m contract`
+- **RAG Quality Tests**: Ragas evaluation tests - `RUN_RAG_TESTS=1 pytest tests/evaluation/`
+
+#### Quick Reference
+
+```bash
+# Fast unit tests only (default)
+pytest
+
+# Skip slow tests
+pytest -m "not slow"
+
+# Run contract tests (requires API keys)
+RUN_CONTRACT_TESTS=1 pytest -m contract
+
+# Run RAG quality tests (requires API keys)
+RUN_RAG_TESTS=1 pytest tests/evaluation/
+
+# Run specific test file
+pytest tests/test_services.py
+```
+
+**📖 For detailed testing documentation, see [TESTING.md](docs/TESTING.md)**
+
+Key test files:
+- `tests/test_services.py` - Pipeline stage services and immutability guarantees
+- `tests/test_dashboard.py` - Dashboard workflow and background runs
+- `tests/test_pdf_parser.py` - PDF parsing adapter tests
+- `tests/test_architecture.py` - Hexagonal architecture compliance
 
 ---
 
@@ -313,9 +344,10 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 - [README](README.md) - Start here for setup and overview (you are here)
 - [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
+- [Testing Guide](docs/TESTING.md) - **NEW!** Comprehensive test suite documentation and running instructions
 
 ### Deep Dives
-- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - **NEW!** Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
 - [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
 - [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
 

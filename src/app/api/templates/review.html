@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+{% block title %}Segment Review Queue{% endblock %}
+
+{% block content %}
+<section style="display:flex;flex-direction:column;gap:20px;width:100%;">
+  <div class="panel">
+    <h2>Segments Requiring Review</h2>
+    <p style="color:#94a3b8;margin-top:8px;">
+      Review segments flagged by the cleaning LLM for accuracy and completeness.
+    </p>
+    
+    <div style="margin-top:20px;">
+      <label for="document-select" style="display:block;margin-bottom:8px;font-size:0.9rem;">
+        Select Document:
+      </label>
+      <select id="document-select" style="padding:10px;border-radius:8px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.6);color:inherit;width:100%;max-width:400px;">
+        <option value="">-- Select a document --</option>
+      </select>
+    </div>
+    
+    <div id="segments-list" style="margin-top:24px;display:flex;flex-direction:column;gap:16px;">
+      <p style="color:#94a3b8;text-align:center;padding:40px;">
+        Select a document to view segments requiring review.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Edit Modal -->
+<div id="edit-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;">
+  <div class="panel" style="max-width:600px;width:90%;max-height:80vh;overflow-y:auto;">
+    <h3>Edit Segment</h3>
+    <div style="margin-top:16px;">
+      <label style="display:block;margin-bottom:8px;font-size:0.9rem;">
+        Corrected Text:
+      </label>
+      <textarea id="edit-textarea" style="width:100%;min-height:150px;padding:12px;border-radius:8px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.6);color:inherit;font-family:inherit;font-size:0.9rem;"></textarea>
+    </div>
+    <div style="margin-top:20px;display:flex;gap:12px;justify-content:flex-end;">
+      <button onclick="ReviewUI.closeEditModal()" style="padding:10px 20px;border-radius:8px;border:1px solid rgba(148,163,184,0.4);background:rgba(15,23,42,0.6);color:inherit;cursor:pointer;">
+        Cancel
+      </button>
+      <button onclick="ReviewUI.saveEdit()" class="primary">
+        Save
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .review-item {
+    border:1px solid rgba(148,163,184,0.2);
+    border-radius:12px;
+    padding:18px;
+    background:rgba(15,23,42,0.8);
+  }
+  .review-item-header {
+    display:flex;
+    justify-content:space-between;
+    align-items:start;
+    margin-bottom:12px;
+  }
+  .segment-meta {
+    font-size:0.85rem;
+    color:#94a3b8;
+  }
+  .segment-text {
+    padding:14px;
+    background:rgba(8,15,32,0.8);
+    border-radius:8px;
+    margin:12px 0;
+    line-height:1.6;
+    white-space:pre-wrap;
+    word-wrap:break-word;
+  }
+  .segment-rationale {
+    padding:10px 14px;
+    background:rgba(251,191,36,0.1);
+    border-left:3px solid #fbbf24;
+    border-radius:6px;
+    margin:12px 0;
+    font-size:0.9rem;
+    color:#fbbf24;
+  }
+  .review-actions {
+    display:flex;
+    gap:10px;
+    margin-top:16px;
+  }
+  .review-actions button {
+    padding:8px 16px;
+    border-radius:8px;
+    border:none;
+    cursor:pointer;
+    font-size:0.9rem;
+    transition:all 0.2s;
+  }
+  .btn-approve {
+    background:rgba(52,211,153,0.2);
+    color:#34d399;
+    border:1px solid rgba(52,211,153,0.4);
+  }
+  .btn-approve:hover {
+    background:rgba(52,211,153,0.3);
+  }
+  .btn-edit {
+    background:rgba(59,130,246,0.2);
+    color:#3b82f6;
+    border:1px solid rgba(59,130,246,0.4);
+  }
+  .btn-edit:hover {
+    background:rgba(59,130,246,0.3);
+  }
+  .empty-state {
+    text-align:center;
+    padding:60px 20px;
+    color:#94a3b8;
+  }
+  .empty-state-icon {
+    font-size:3rem;
+    margin-bottom:16px;
+  }
+</style>
+
+<script>
+const ReviewUI = {
+  currentDocumentId: null,
+  currentSegmentId: null,
+  segments: [],
+  
+  async init() {
+    await this.loadDocuments();
+    const select = document.getElementById('document-select');
+    if (select) {
+      select.addEventListener('change', (e) => {
+        this.loadSegmentsForReview(e.target.value);
+      });
+    }
+  },
+  
+  async loadDocuments() {
+    try {
+      const response = await fetch('/documents');
+      const documents = await response.json();
+      const select = document.getElementById('document-select');
+      if (!select) return;
+      
+      select.innerHTML = '<option value="">-- Select a document --</option>';
+      documents.forEach(doc => {
+        const option = document.createElement('option');
+        option.value = doc.id;
+        option.textContent = `${doc.filename} (${doc.id.substring(0,8)}...)`;
+        select.appendChild(option);
+      });
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    }
+  },
+  
+  async loadSegmentsForReview(documentId) {
+    if (!documentId) {
+      document.getElementById('segments-list').innerHTML = 
+        '<p style="color:#94a3b8;text-align:center;padding:40px;">Select a document to view segments requiring review.</p>';
+      return;
+    }
+    
+    this.currentDocumentId = documentId;
+    const list = document.getElementById('segments-list');
+    list.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:40px;">Loading segments...</p>';
+    
+    try {
+      const response = await fetch(`/documents/${documentId}/segments-for-review`);
+      const data = await response.json();
+      this.segments = data.flagged_segments || [];
+      this.renderSegments();
+    } catch (error) {
+      console.error('Failed to load segments:', error);
+      list.innerHTML = '<p style="color:#f87171;text-align:center;padding:40px;">Failed to load segments. Please try again.</p>';
+    }
+  },
+  
+  renderSegments() {
+    const list = document.getElementById('segments-list');
+    
+    if (this.segments.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">✓</div>
+          <h3>No segments require review</h3>
+          <p>All segments in this document have been reviewed or none were flagged.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    list.innerHTML = this.segments.map(seg => `
+      <div class="review-item" data-segment-id="${seg.segment_id}">
+        <div class="review-item-header">
+          <div>
+            <div style="font-weight:600;color:#e0f2fe;">Segment ${seg.segment_id}</div>
+            <div class="segment-meta">
+              Page ${seg.page_number}${seg.chunk_id ? ` · Chunk ${seg.chunk_id.substring(0,8)}...` : ''}
+            </div>
+          </div>
+        </div>
+        ${seg.rationale ? `
+          <div class="segment-rationale">
+            <strong>Review Reason:</strong> ${this.escapeHtml(seg.rationale)}
+          </div>
+        ` : ''}
+        <div class="segment-text">${this.escapeHtml(seg.text)}</div>
+        <div class="review-actions">
+          <button class="btn-approve" onclick="ReviewUI.approve('${seg.segment_id}')">
+            Approve
+          </button>
+          <button class="btn-edit" onclick="ReviewUI.openEditModal('${seg.segment_id}', ${JSON.stringify(seg.text).replace(/"/g, '&quot;')})">
+            Edit
+          </button>
+        </div>
+      </div>
+    `).join('');
+  },
+  
+  async approve(segmentId) {
+    if (!this.currentDocumentId) return;
+    
+    if (!confirm('Mark this segment as approved?')) return;
+    
+    try {
+      const response = await fetch(`/segments/${segmentId}/approve`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({document_id: this.currentDocumentId}),
+      });
+      
+      if (!response.ok) throw new Error('Approval failed');
+      
+      // Remove segment from list
+      this.segments = this.segments.filter(s => s.segment_id !== segmentId);
+      this.renderSegments();
+    } catch (error) {
+      console.error('Failed to approve segment:', error);
+      alert('Failed to approve segment. Please try again.');
+    }
+  },
+  
+  openEditModal(segmentId, currentText) {
+    this.currentSegmentId = segmentId;
+    const textarea = document.getElementById('edit-textarea');
+    const modal = document.getElementById('edit-modal');
+    if (textarea && modal) {
+      textarea.value = currentText;
+      modal.style.display = 'flex';
+    }
+  },
+  
+  closeEditModal() {
+    const modal = document.getElementById('edit-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    this.currentSegmentId = null;
+  },
+  
+  async saveEdit() {
+    if (!this.currentDocumentId || !this.currentSegmentId) return;
+    
+    const textarea = document.getElementById('edit-textarea');
+    const correctedText = textarea?.value.trim();
+    
+    if (!correctedText) {
+      alert('Please enter corrected text.');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/segments/${this.currentSegmentId}/edit`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          document_id: this.currentDocumentId,
+          corrected_text: correctedText,
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Edit failed');
+      
+      // Remove segment from list
+      this.segments = this.segments.filter(s => s.segment_id !== this.currentSegmentId);
+      this.renderSegments();
+      this.closeEditModal();
+    } catch (error) {
+      console.error('Failed to edit segment:', error);
+      alert('Failed to save edit. Please try again.');
+    }
+  },
+  
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  },
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  ReviewUI.init();
+});
+
+window.ReviewUI = ReviewUI;
+</script>
+{% endblock %}
+

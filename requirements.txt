@@ -15,5 +15,9 @@ llama-index-llms-openai>=0.2.0
 llama-index-embeddings-openai>=0.2.0
 pymupdf
 llama-index-multi-modal-llms-openai
+llama-index-callbacks-langfuse
 
 pillow
+langfuse
+ragas
+datasets

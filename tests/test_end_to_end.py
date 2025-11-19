@@ -1,3 +1,4 @@
+import importlib
 import os
 from pathlib import Path
 
@@ -7,16 +8,48 @@ from fastapi.testclient import TestClient
 from src.app.main import app
 
 
+@pytest.mark.slow
 def test_upload_and_retrieve_document(tmp_path):
     """End-to-end test that uploads a PDF and verifies the full pipeline completes."""
+    # Ensure mock providers are used (prevent hanging on real LLM calls)
+    if os.getenv("RUN_CONTRACT_TESTS"):
+        pytest.skip("Skipping end-to-end test in contract test mode")
+    
+    # Save original values
+    original_llm_provider = os.environ.get("LLM__PROVIDER")
+    original_embeddings_provider = os.environ.get("EMBEDDINGS__PROVIDER")
+    original_openai_key = os.environ.get("OPENAI_API_KEY")
+    
+    # Force mock providers before clearing cache
+    # Unset OPENAI_API_KEY to prevent accidental real API calls
+    os.environ["LLM__PROVIDER"] = "mock"
+    os.environ["EMBEDDINGS__PROVIDER"] = "mock"
+    if "OPENAI_API_KEY" in os.environ:
+        del os.environ["OPENAI_API_KEY"]
+    
     # Enable pixmap generation for this test (required for vision-based parsing)
     # Note: The app container is cached, so we need to clear it to pick up env changes
     os.environ["CHUNKING__INCLUDE_IMAGES"] = "true"
     os.environ["PIXMAP_STORAGE_DIR"] = str(tmp_path / "pixmaps")
     
+    # Reload config and container modules to pick up new environment variables
+    import src.app.config
+    importlib.reload(src.app.config)
+    import src.app.container
+    importlib.reload(src.app.container)
+    
     # Clear the cached container to pick up new environment variables
     from src.app.container import get_app_container
     get_app_container.cache_clear()
+    
+    # Verify mock providers are being used (prevent hanging on real LLM calls)
+    container = get_app_container()
+    if container.settings.llm.provider != "mock":
+        pytest.skip(f"Test requires mock LLM provider, but got {container.settings.llm.provider}. "
+                   f"Set LLM__PROVIDER=mock to run this test.")
+    if container.settings.embeddings.provider != "mock":
+        pytest.skip(f"Test requires mock embeddings provider, but got {container.settings.embeddings.provider}. "
+                   f"Set EMBEDDINGS__PROVIDER=mock to run this test.")
     
     client = TestClient(app)
     
@@ -55,3 +88,16 @@ def test_upload_and_retrieve_document(tmp_path):
     
     # Restore original environment
     os.environ["CHUNKING__INCLUDE_IMAGES"] = "false"
+    # Restore original providers
+    if original_llm_provider is not None:
+        os.environ["LLM__PROVIDER"] = original_llm_provider
+    elif "LLM__PROVIDER" in os.environ:
+        del os.environ["LLM__PROVIDER"]
+    
+    if original_embeddings_provider is not None:
+        os.environ["EMBEDDINGS__PROVIDER"] = original_embeddings_provider
+    elif "EMBEDDINGS__PROVIDER" in os.environ:
+        del os.environ["EMBEDDINGS__PROVIDER"]
+    
+    if original_openai_key is not None:
+        os.environ["OPENAI_API_KEY"] = original_openai_key
