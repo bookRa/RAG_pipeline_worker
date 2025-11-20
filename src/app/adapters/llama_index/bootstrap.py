@@ -76,6 +76,8 @@ def _configure_llama_index(settings: Settings) -> None:
     api_base = None
     if settings.llm.provider == "openai":
         api_key, api_base = _resolve_openai_credentials(settings)
+    elif settings.llm.provider == "bcai":
+        api_key, api_base = _resolve_bcai_credentials(settings)
 
     llm_client = _build_llm(settings, api_key=api_key, api_base=api_base)
     multi_modal_llm = _build_multi_modal_llm(settings, api_key=api_key, api_base=api_base)
@@ -102,6 +104,17 @@ def _resolve_openai_credentials(settings: Settings) -> tuple[str, str | None]:
     return api_key, settings.llm.api_base
 
 
+def _resolve_bcai_credentials(settings: Settings) -> tuple[str, str | None]:
+    api_key = settings.llm.api_key or os.environ.get("BCAI_API_KEY")
+    api_base = settings.llm.api_base or os.environ.get("BCAI_API_BASE")
+    if not api_key or not api_base:
+        raise LlamaIndexBootstrapError(
+            "BCAI_API_KEY and BCAI_API_BASE (or LLM__API_KEY and LLM__API_BASE) "
+            "are required when using the BCAI provider."
+        )
+    return api_key, api_base
+
+
 def _build_llm(settings: Settings, *, api_key: str | None = None, api_base: str | None = None) -> Any:
     provider = settings.llm.provider
     if provider == "mock":
@@ -122,6 +135,26 @@ def _build_llm(settings: Settings, *, api_key: str | None = None, api_base: str 
             api_key=api_key,
             timeout=settings.llm.timeout_seconds,
             max_retries=settings.llm.max_retries,
+        )
+    
+    if provider == "bcai":
+        from .bcai_llm import BCAILLM
+        
+        if not api_key or not api_base:
+            raise LlamaIndexBootstrapError(
+                "LLM__API_KEY and LLM__API_BASE are required when using the BCAI provider."
+            )
+        
+        return BCAILLM(
+            api_base=api_base,
+            api_key=api_key,
+            model=settings.llm.model,
+            temperature=settings.llm.temperature,
+            max_tokens=settings.llm.max_output_tokens,
+            timeout=settings.llm.timeout_seconds,
+            max_retries=settings.llm.max_retries,
+            conversation_mode=getattr(settings.llm, "conversation_mode", "non-rag"),
+            conversation_source=getattr(settings.llm, "conversation_source", "rag-pipeline-worker"),
         )
 
     raise LlamaIndexBootstrapError(
@@ -157,6 +190,12 @@ def _build_multi_modal_llm(
             api_key=api_key,
             api_base=api_base,
         )
+    
+    if provider == "bcai":
+        # BCAI adapter already supports multi-modal (vision), so we return None
+        # The main LLM will handle both text and vision
+        return None
+    
     return None
 
 
@@ -176,6 +215,26 @@ def _build_embedding(settings: Settings) -> Any:
         return OpenAIEmbedding(
             model=settings.embeddings.model,
             embed_batch_size=settings.embeddings.batch_size,
+        )
+    
+    if provider == "bcai":
+        from .bcai_embedding import BCAIEmbedding
+        
+        api_key = settings.embeddings.api_key or os.environ.get("BCAI_API_KEY") or settings.llm.api_key
+        api_base = settings.embeddings.api_base or os.environ.get("BCAI_API_BASE") or settings.llm.api_base
+        
+        if not api_key or not api_base:
+            raise LlamaIndexBootstrapError(
+                "BCAI_API_KEY and BCAI_API_BASE (or EMBEDDINGS__API_KEY/API_BASE) "
+                "are required when using the BCAI embedding provider."
+            )
+        
+        return BCAIEmbedding(
+            api_base=api_base,
+            api_key=api_key,
+            model=settings.embeddings.model,
+            dimensions=getattr(settings.embeddings, "dimensions", None),
+            batch_size=settings.embeddings.batch_size,
         )
 
     raise LlamaIndexBootstrapError(
