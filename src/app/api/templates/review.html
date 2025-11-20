@@ -8,6 +8,7 @@
     <p style="color:#94a3b8;margin-top:8px;">
       Review segments flagged by the cleaning LLM for accuracy and completeness.
     </p>
+    <div id="review-info-banner" style="display:none;margin-top:16px;padding:12px 16px;border-radius:10px;border:1px solid rgba(59,130,246,0.3);background:rgba(59,130,246,0.12);color:#bfdbfe;font-size:0.9rem;"></div>
     
     <div style="margin-top:20px;">
       <label for="document-select" style="display:block;margin-bottom:8px;font-size:0.9rem;">
@@ -120,6 +121,11 @@
     font-size:3rem;
     margin-bottom:16px;
   }
+  .info-banner-warning {
+    border-color:rgba(248,113,113,0.4) !important;
+    background:rgba(248,113,113,0.12) !important;
+    color:#fecdd3 !important;
+  }
 </style>
 
 <script>
@@ -127,14 +133,32 @@ const ReviewUI = {
   currentDocumentId: null,
   currentSegmentId: null,
   segments: [],
+  documents: [],
+  preselectedDocumentId: null,
   
   async init() {
+    const params = new URLSearchParams(window.location.search);
+    this.preselectedDocumentId = params.get('document_id');
+    
     await this.loadDocuments();
     const select = document.getElementById('document-select');
     if (select) {
       select.addEventListener('change', (e) => {
         this.loadSegmentsForReview(e.target.value);
       });
+      
+      if (this.preselectedDocumentId) {
+        const optionExists = Array.from(select.options).some(opt => opt.value === this.preselectedDocumentId);
+        if (optionExists) {
+          select.value = this.preselectedDocumentId;
+          await this.loadSegmentsForReview(this.preselectedDocumentId);
+          select.scrollIntoView({behavior:'smooth', block:'start'});
+          this.showInfoBanner(`Loaded review queue for ${this.getDocumentLabel(this.preselectedDocumentId)}`);
+        } else {
+          this.showInfoBanner("We couldn't find that document. It may still be available soon.", true);
+        }
+        this.preselectedDocumentId = null;
+      }
     }
   },
   
@@ -142,6 +166,7 @@ const ReviewUI = {
     try {
       const response = await fetch('/documents');
       const documents = await response.json();
+      this.documents = documents;
       const select = document.getElementById('document-select');
       if (!select) return;
       
@@ -158,7 +183,9 @@ const ReviewUI = {
   },
   
   async loadSegmentsForReview(documentId) {
+    this.updateUrlParam(documentId);
     if (!documentId) {
+      this.clearInfoBanner();
       document.getElementById('segments-list').innerHTML = 
         '<p style="color:#94a3b8;text-align:center;padding:40px;">Select a document to view segments requiring review.</p>';
       return;
@@ -173,9 +200,11 @@ const ReviewUI = {
       const data = await response.json();
       this.segments = data.flagged_segments || [];
       this.renderSegments();
+      this.showInfoBanner(`Loaded review queue for ${this.getDocumentLabel(documentId)}`);
     } catch (error) {
       console.error('Failed to load segments:', error);
       list.innerHTML = '<p style="color:#f87171;text-align:center;padding:40px;">Failed to load segments. Please try again.</p>';
+      this.showInfoBanner('Unable to load review segments. Please try again.', true);
     }
   },
   
@@ -299,6 +328,45 @@ const ReviewUI = {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  },
+  
+  updateUrlParam(documentId) {
+    if (typeof window === 'undefined' || !window.history) return;
+    const url = new URL(window.location.href);
+    if (documentId) {
+      url.searchParams.set('document_id', documentId);
+    } else {
+      url.searchParams.delete('document_id');
+    }
+    window.history.replaceState({}, '', url);
+  },
+  
+  showInfoBanner(message, isWarning = false) {
+    const banner = document.getElementById('review-info-banner');
+    if (!banner) return;
+    banner.textContent = message;
+    banner.style.display = 'block';
+    if (isWarning) {
+      banner.classList.add('info-banner-warning');
+    } else {
+      banner.classList.remove('info-banner-warning');
+    }
+  },
+  
+  clearInfoBanner() {
+    const banner = document.getElementById('review-info-banner');
+    if (!banner) return;
+    banner.style.display = 'none';
+    banner.classList.remove('info-banner-warning');
+    banner.textContent = '';
+  },
+  
+  getDocumentLabel(documentId) {
+    const doc = (this.documents || []).find(d => d.id === documentId);
+    if (doc) {
+      return `${doc.filename} (${documentId.substring(0, 8)}…)`;
+    }
+    return `document ${documentId.substring(0, 8)}…`;
   },
 };
 

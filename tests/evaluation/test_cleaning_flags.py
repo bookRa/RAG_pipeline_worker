@@ -14,6 +14,13 @@ from src.app.container import get_app_container
 from src.app.domain.models import Document
 
 
+def _get_page_cleaning_metadata(cleaning_metadata: dict, page_number: int) -> dict:
+    """Return metadata for a page regardless of whether keys are str or int."""
+    if not cleaning_metadata:
+        return {}
+    return cleaning_metadata.get(page_number) or cleaning_metadata.get(str(page_number)) or {}
+
+
 def load_ground_truth_labels(file_path: Path) -> dict[str, list[str]]:
     """Load ground truth labels from a JSON file.
     
@@ -35,7 +42,7 @@ def extract_flagged_segments(document: Document) -> list[dict[str, Any]]:
     cleaning_metadata = document.metadata.get("cleaning_metadata_by_page", {}) if document.metadata else {}
     
     for page in document.pages:
-        page_meta = cleaning_metadata.get(page.page_number, {})
+        page_meta = _get_page_cleaning_metadata(cleaning_metadata, page.page_number)
         llm_segments = page_meta.get("llm_segments", {})
         segments = llm_segments.get("segments", [])
         

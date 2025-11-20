@@ -3,9 +3,17 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ...domain.models import Document
 from ..ports import DocumentRepository
+
+
+def _get_page_cleaning_metadata(cleaning_metadata: dict[Any, dict], page_number: int) -> dict:
+    """Return cleaning metadata for a page regardless of key serialization."""
+    if not cleaning_metadata:
+        return {}
+    return cleaning_metadata.get(page_number) or cleaning_metadata.get(str(page_number)) or {}
 
 
 class FileSystemDocumentRepository(DocumentRepository):
@@ -113,7 +121,7 @@ class FileSystemDocumentRepository(DocumentRepository):
             # Also update cleaned_text on the page if needed
             # This is a simplified approach - in production you might want to regenerate cleaned_text
             for page in document.pages:
-                page_meta = cleaning_metadata.get(page.page_number, {})
+                page_meta = _get_page_cleaning_metadata(cleaning_metadata, page.page_number)
                 llm_segments = page_meta.get("llm_segments", {})
                 segments = llm_segments.get("segments", [])
                 if any(s.get("segment_id") == segment_id for s in segments):

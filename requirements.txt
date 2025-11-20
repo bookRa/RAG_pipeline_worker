@@ -18,6 +18,7 @@ llama-index-multi-modal-llms-openai
 llama-index-callbacks-langfuse
 
 pillow
-langfuse
 ragas
 datasets
+packaging<24
+langfuse>=2.60.10,<3

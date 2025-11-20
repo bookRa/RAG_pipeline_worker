@@ -26,6 +26,7 @@ from .persistence.adapters.document_filesystem import FileSystemDocumentReposito
 from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .observability.logger import LoggingObservabilityRecorder
+from .observability.langfuse_handler import PipelineLangfuseHandler
 from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
@@ -84,9 +85,8 @@ class AppContainer:
                 try:
                     from llama_index.core import Settings as LlamaIndexSettings
                     from llama_index.core.callbacks import CallbackManager
-                    from langfuse.llama_index import LlamaIndexCallbackHandler
                     
-                    langfuse_handler = LlamaIndexCallbackHandler(
+                    langfuse_handler = PipelineLangfuseHandler(
                         public_key=self.settings.langfuse_public_key,
                         secret_key=self.settings.langfuse_secret_key,
                         host=self.settings.langfuse_host,

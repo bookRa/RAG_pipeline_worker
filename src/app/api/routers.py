@@ -1,9 +1,18 @@
+from typing import Any
+
 from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
 
 from ..application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
 from ..container import get_app_container
 
 router = APIRouter()
+
+
+def _get_page_cleaning_metadata(cleaning_metadata: dict[str, Any], page_number: int) -> dict[str, Any]:
+    """Return cleaning metadata for a page regardless of key serialization."""
+    if not cleaning_metadata:
+        return {}
+    return cleaning_metadata.get(page_number) or cleaning_metadata.get(str(page_number)) or {}
 
 
 def get_upload_use_case() -> UploadDocumentUseCase:
@@ -66,7 +75,7 @@ async def get_segments_for_review(
     cleaning_metadata = document.metadata.get("cleaning_metadata_by_page", {}) if document.metadata else {}
     
     for page in document.pages:
-        page_meta = cleaning_metadata.get(page.page_number, {})
+        page_meta = _get_page_cleaning_metadata(cleaning_metadata, page.page_number)
         llm_segments = page_meta.get("llm_segments", {})
         segments = llm_segments.get("segments", [])
         
@@ -98,7 +107,7 @@ async def get_segments_for_review(
 @router.post("/segments/{segment_id}/approve")
 async def approve_segment(
     segment_id: str,
-    document_id: str = Body(...),
+    document_id: str = Body(..., embed=True),
     use_case: GetDocumentUseCase = Depends(get_get_use_case),
 ) -> dict:
     """Mark a segment as reviewed/approved."""

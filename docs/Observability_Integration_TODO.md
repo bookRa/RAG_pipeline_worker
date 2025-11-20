@@ -41,14 +41,17 @@ See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Imp
 - Links between pipeline stages and LLM operations
 
 **Tasks**:
-- [ ] Install `langfuse` and `llama-index-callbacks-langfuse` packages
-- [ ] Add Langfuse configuration to `Settings` (public key, secret key, host, enable flag)
-- [ ] Initialize `LlamaIndexCallbackHandler` in `AppContainer` if enabled
-- [ ] Set global callback manager for LlamaIndex
-- [ ] Add custom trace context in `PipelineRunner.run()` for document processing
-- [ ] Add spans for each pipeline stage (parsing, cleaning, chunking, enrichment, vectorization)
-- [ ] Test traces appear in Langfuse UI with correct hierarchy
-- [ ] Document setup in README for team
+- [x] Install `langfuse` and `llama-index-callbacks-langfuse` packages (`requirements.txt`)
+- [x] Add Langfuse configuration to `Settings` (public key, secret key, host, enable flag)
+- [x] Initialize Langfuse handler in `AppContainer` if enabled
+- [x] Set global callback manager for LlamaIndex
+- [x] Add custom trace context in `PipelineRunner.run()` for document processing
+- [x] Add spans for each pipeline stage (parsing, cleaning, chunking, enrichment, vectorization)
+- [x] Attach pixmap previews to parsing spans via Langfuse multi-modality support
+- [x] Group traces by `session_id` (pipeline run ID) so UI sessions show full runs
+- [ ] Test traces appear in Langfuse UI with correct hierarchy (pending manual verification in hosted Langfuse)
+- [x] Document setup in README for team (see “Langfuse Tracing” section)
+- [ ] Abstraction follow-up: design observability adapter that can swap Langfuse for other providers (CloudWatch, OTLP) without touching services
 
 **Files**:
 - `requirements.txt`
@@ -77,29 +80,29 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 **Tasks**:
 
 **Backend**:
-- [ ] Add `GET /documents/{document_id}/segments-for-review` endpoint
+- [x] Add `GET /documents/{document_id}/segments-for-review` endpoint
   - Extract segments with `needs_review=true` from chunk metadata
   - Return list with segment text, rationale, location info
-- [ ] Add `POST /segments/{segment_id}/approve` endpoint
+- [x] Add `POST /segments/{segment_id}/approve` endpoint
   - Mark segment as reviewed
   - Update document metadata
-- [ ] Add `PUT /segments/{segment_id}/edit` endpoint
+- [x] Add `PUT /segments/{segment_id}/edit` endpoint
   - Accept corrected text from human reviewer
   - Store correction (possibly in separate corrections table)
   - Link correction back to original segment
 
 **Frontend**:
-- [ ] Create review dashboard page (`api/templates/review.html`)
-- [ ] Show queue of segments needing review
-- [ ] Display segment text, rationale, and context (page number, surrounding text)
-- [ ] Add approve/edit buttons
-- [ ] Implement edit modal with text area and save button
-- [ ] Add filter/search by document, page, rationale type
+- [x] Create review dashboard page (`api/templates/review.html`)
+- [x] Show queue of segments needing review
+- [x] Display segment text, rationale, and context (page number, surrounding text)
+- [x] Add approve/edit buttons
+- [x] Implement edit modal with text area and save button
+- [ ] Add filter/search by document, page, rationale type (follow-up enhancement)
 
 **Testing**:
-- [ ] Test with documents that have flagged segments
-- [ ] Verify review actions update document state
-- [ ] Test correction storage and retrieval
+- [x] Test with documents that have flagged segments (`tests/test_dashboard.py::test_segments_review_endpoints_flow`)
+- [x] Verify review actions update document state (`tests/test_document_repository.py`)
+- [x] Test correction storage and retrieval (`tests/test_document_repository.py::test_edit_segment_updates_text_and_page`)
 
 **Files**:
 - `src/app/api/routers.py` (review endpoints)

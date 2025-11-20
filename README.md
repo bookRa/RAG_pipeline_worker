@@ -143,6 +143,9 @@ RAG_pipeline_worker/
 - `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
 - `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
 - `GET /documents/{doc_id}` – Fetches a single processed document.
+- `GET /documents/{document_id}/segments-for-review` – Surfaces every segment flagged by the cleaning LLM (`needs_review=true`) along with rationale, page number, and chunk metadata for HITL workflows.
+- `POST /segments/{segment_id}/approve` – Marks a flagged segment as reviewed/approved and records the review action inside `review_history`.
+- `PUT /segments/{segment_id}/edit` – Stores human corrections for a flagged segment while keeping the original text for auditing/fine-tuning.
 - `GET /dashboard` – Renders the manual test harness with real-time pipeline monitoring:
   - Upload documents and track processing through all stages
   - Background execution via `PipelineRunManager.run_async` with live polling
@@ -150,6 +153,7 @@ RAG_pipeline_worker/
   - Inspect chunk metadata including component type and contextualized text
   - Track stage durations and component-aware chunking statistics
   - Preview document files served from `static/uploads/`
+- `GET /dashboard/review` – Human-in-the-loop queue that consumes the APIs above so reviewers can approve or edit segments inline and watch the queue drain in real time.
 
 The dashboard uses only server-side templates (Jinja2) plus vanilla JS for auto-refreshing. No frontend build tooling required.
 
@@ -221,6 +225,25 @@ echo "LLM__MODEL=gpt-4o-mini" >> .env
 > **401 missing API key?** Make sure either `LLM__API_KEY` or `OPENAI_API_KEY` is set in the environment. The code first checks `LLM__API_KEY` and falls back to `OPENAI_API_KEY`; if both are blank the OpenAI SDK will reject requests with a 401.
 
 In hosted environments (Render, AWS, etc.) define the same variables through your platform’s secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
+
+### Langfuse Tracing
+
+Langfuse instrumentation (Phase B) is wired into `src/app/container.py` and `PipelineRunner`. When enabled, each pipeline run emits a root trace named `document_processing_pipeline` plus child spans for ingestion, parsing, cleaning, chunking, enrichment, and vectorization. Stage metadata (chunk counts, cleaning profiles, summaries, etc.) is attached to every span, and the final trace ID flows back through the logging adapter so you can correlate console logs with Langfuse.
+
+1. Install dependencies (already in `requirements.txt`): `langfuse` and `llama-index-callbacks-langfuse`.
+2. Add the following to `.env` (or export them before starting the API):
+
+   ```bash
+   ENABLE_LANGFUSE=true
+   LANGFUSE_PUBLIC_KEY=pk-your-key
+   LANGFUSE_SECRET_KEY=sk-your-key
+   LANGFUSE_HOST=https://cloud.langfuse.com  # or your self-hosted URL
+   ```
+
+3. Start the app (`uvicorn src.app.main:app --reload`) and upload a document via `/dashboard` or `POST /upload`.
+4. Open the Langfuse UI → Traces to confirm the run hierarchy. Each span should include timing plus structured metadata such as chunk counts, pixmap metrics, and cleaning profiles.
+
+Set `ENABLE_LANGFUSE=false` (default) to fall back to structured logging without Langfuse dependencies.
 
 ---
 
@@ -357,6 +380,7 @@ Key test files:
 
 ### Next Steps
 - [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
+- [Langfuse Usage Guide](docs/Langfuse_User_Guide.md) - How we instrument traces and inspect runs in the Langfuse UI
 
 ### Prompts & Research
 - [Prompts Guide](docs/prompts/README.md) - How to tune LLM behavior across pipeline stages

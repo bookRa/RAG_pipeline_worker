@@ -633,82 +633,72 @@ This will produce better component boundaries, leading to more meaningful segmen
 
 **How to Build HITL Workflow**:
 
-**Step 1: Add a query endpoint to find flagged segments**
+**Step 1: Use the review API to fetch flagged segments**
 
 ```python
-# In api/routers.py
-@app.get("/documents/{document_id}/segments-for-review")
-def get_segments_for_review(document_id: str):
-    document = container.document_repository.get(document_id)
+# src/app/api/routers.py
+@router.get("/documents/{document_id}/segments-for-review")
+async def get_segments_for_review(document_id: str, use_case: GetDocumentUseCase = Depends(get_get_use_case)) -> dict:
+    document = use_case.execute(document_id)
+    cleaning_metadata = document.metadata.get("cleaning_metadata_by_page", {}) if document.metadata else {}
     flagged_segments = []
-    
+
     for page in document.pages:
-        for chunk in page.chunks:
-            if chunk.metadata and chunk.metadata.extra.get("cleaning"):
-                cleaning_meta = chunk.metadata.extra["cleaning"]
-                if "llm_segments" in cleaning_meta:
-                    for segment in cleaning_meta["llm_segments"]["segments"]:
-                        if segment.get("needs_review"):
-                            flagged_segments.append({
-                                "document_id": document_id,
-                                "page_number": page.page_number,
-                                "chunk_id": chunk.id,
-                                "segment_id": segment["segment_id"],
-                                "text": segment["text"],
-                                "rationale": segment["rationale"],
-                            })
-    
+        page_meta = _get_page_cleaning_metadata(cleaning_metadata, page.page_number)
+        segments = page_meta.get("llm_segments", {}).get("segments", [])
+        for segment in segments:
+            if segment.get("needs_review"):
+                chunk_id = None
+                for chunk in page.chunks:
+                    cleaning_extra = (chunk.metadata and chunk.metadata.extra.get("cleaning")) or {}
+                    llm_segments = cleaning_extra.get("llm_segments", {})
+                    if any(s.get("segment_id") == segment.get("segment_id") for s in llm_segments.get("segments", [])):
+                        chunk_id = chunk.id
+                        break
+                flagged_segments.append(
+                    {
+                        "document_id": document_id,
+                        "page_number": page.page_number,
+                        "chunk_id": chunk_id,
+                        "segment_id": segment.get("segment_id"),
+                        "text": segment.get("text", ""),
+                        "rationale": segment.get("rationale"),
+                    }
+                )
     return {"flagged_segments": flagged_segments}
 ```
 
-**Step 2: Add a review UI to the dashboard**
+**Step 2: Review UI (`/dashboard/review`)**
 
-```html
-<!-- In api/templates/dashboard.html or new review page -->
-<div class="review-queue">
-  <h2>Segments Requiring Review</h2>
-  <div id="segments-list">
-    <!-- Populated via JavaScript fetch -->
-  </div>
-</div>
+`src/app/api/templates/review.html` renders a dedicated queue:
 
-<script>
-async function loadSegmentsForReview(documentId) {
-  const response = await fetch(`/documents/${documentId}/segments-for-review`);
-  const data = await response.json();
-  
-  const list = document.getElementById('segments-list');
-  data.flagged_segments.forEach(seg => {
-    const item = document.createElement('div');
-    item.className = 'review-item';
-    item.innerHTML = `
-      <div class="segment-text">${seg.text}</div>
-      <div class="segment-rationale">${seg.rationale}</div>
-      <button onclick="approve('${seg.segment_id}')">Approve</button>
-      <button onclick="edit('${seg.segment_id}')">Edit</button>
-    `;
-    list.appendChild(item);
-  });
-}
-</script>
-```
+- Populates the document selector via `GET /documents`
+- Calls `/documents/{document_id}/segments-for-review` and renders cards with rationale, page/chunk context, and action buttons
+- Provides inline Approve and Edit actions with optimistic UI updates plus a modal for corrections
+- Uses the same design system as the dashboard while keeping the pipeline view untouched
 
-**Step 3: Add approval/editing endpoints**
+**Step 3: Approve/Edit endpoints write back to storage**
 
 ```python
-@app.post("/segments/{segment_id}/approve")
-def approve_segment(segment_id: str):
-    # Mark segment as reviewed in database
-    # Remove needs_review flag
-    pass
+# src/app/api/routers.py
+@router.post("/segments/{segment_id}/approve")
+async def approve_segment(segment_id: str, document_id: str = Body(...)) -> dict:
+    repository = get_app_container().document_repository
+    updated = repository.approve_segment(document_id, segment_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return {"status": "approved", "segment_id": segment_id}
 
-@app.put("/segments/{segment_id}/edit")
-def edit_segment(segment_id: str, corrected_text: str):
-    # Update segment text with human correction
-    # Could store in a separate "corrections" table
-    # Use corrections to fine-tune the cleaning LLM
-    pass
+@router.put("/segments/{segment_id}/edit")
+async def edit_segment(segment_id: str, document_id: str = Body(...), corrected_text: str = Body(...)) -> dict:
+    repository = get_app_container().document_repository
+    updated = repository.edit_segment(document_id, segment_id, corrected_text)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return {"status": "edited", "segment_id": segment_id, "corrected_text": corrected_text}
 ```
+
+Both helpers delegate to `FileSystemDocumentRepository`, which toggles `needs_review`, appends to `review_history`, and rebuilds `page.cleaned_text` so downstream services always read the corrected content.
 
 **Tuning the Review Criteria**:
 

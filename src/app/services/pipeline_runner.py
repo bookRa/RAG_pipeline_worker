@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import logging
+import mimetypes
+import os
 from datetime import datetime
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Callable, Iterable
+
+try:
+    from langfuse.media import LangfuseMedia
+except ImportError:  # pragma: no cover - optional dependency
+    LangfuseMedia = None  # type: ignore[attr-defined]
 
 from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
@@ -13,6 +22,9 @@ from .enrichment_service import EnrichmentService
 from .parsing_service import ParsingService
 from .ingestion_service import IngestionService
 from .vector_service import VectorService
+
+
+DEFAULT_PIXMAP_PREVIEW_LIMIT = int(os.getenv("LANGFUSE_PIXMAP_PREVIEW_LIMIT", "2"))
 
 
 class PipelineRunner:
@@ -37,6 +49,7 @@ class PipelineRunner:
         self.vectorization = vectorization
         self.observability = observability
         self.langfuse_handler = langfuse_handler
+        self.pixmap_preview_limit = max(0, DEFAULT_PIXMAP_PREVIEW_LIMIT)
 
     STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
         ("ingestion", "Ingestion"),
@@ -51,6 +64,7 @@ class PipelineRunner:
         self,
         document: Document,
         *,
+        run_id: str | None = None,
         file_bytes: bytes | None = None,
         progress_callback: Callable[[PipelineStage, Document], None] | None = None,
     ) -> PipelineResult:
@@ -59,10 +73,32 @@ class PipelineRunner:
         # Create Langfuse trace for this pipeline run if handler is available
         langfuse_trace = None
         langfuse_trace_id = None
+        session_id = (
+            run_id
+            or (document.metadata or {}).get("source_session_id")
+            or document.id
+        )
+        trace_name = f"document_pipeline::{document.filename}"
+        trace_tags = ["pipeline", document.file_type]
         if self.langfuse_handler and hasattr(self.langfuse_handler, 'langfuse'):
             try:
+                if hasattr(self.langfuse_handler, "set_trace_params"):
+                    try:
+                        self.langfuse_handler.set_trace_params(
+                            name=trace_name,
+                            session_id=session_id,
+                            metadata={
+                                "document_id": document.id,
+                                "filename": document.filename,
+                                "run_id": run_id,
+                            },
+                            tags=trace_tags,
+                        )
+                    except Exception:
+                        pass
                 langfuse_trace = self.langfuse_handler.langfuse.trace(
-                    name="document_processing_pipeline",
+                    name=trace_name,
+                    session_id=session_id,
                     input={
                         "document_id": document.id,
                         "filename": document.filename,
@@ -70,7 +106,9 @@ class PipelineRunner:
                     metadata={
                         "file_type": document.file_type,
                         "size_bytes": document.size_bytes,
+                        "run_id": run_id,
                     },
+                    tags=trace_tags,
                 )
                 langfuse_trace_id = langfuse_trace.id if hasattr(langfuse_trace, 'id') else None
                 
@@ -79,9 +117,13 @@ class PipelineRunner:
                     document = document.model_copy(
                         update={"metadata": {**document.metadata, "langfuse_trace_id": langfuse_trace_id}}
                     )
+                if hasattr(self.langfuse_handler, "set_root"):
+                    try:
+                        self.langfuse_handler.set_root(langfuse_trace, update_root=False)
+                    except Exception:
+                        pass
             except Exception as exc:
                 # Log but don't fail if Langfuse tracing fails
-                import logging
                 logger = logging.getLogger(__name__)
                 logger.warning("Failed to create Langfuse trace: %s", exc)
 
@@ -140,6 +182,7 @@ class PipelineRunner:
         document = self.parsing.parse(document, file_bytes=file_bytes)
         pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
         parsed_pages_meta = document.metadata.get("parsed_pages", {})
+        pixmap_previews = self._collect_pixmap_previews(document)
         
         # Build page details with components
         page_details = []
@@ -170,6 +213,13 @@ class PipelineRunner:
         end_langfuse_span(parsing_span, {
             "page_count": len(document.pages),
             "pixmap_metrics": pixmap_metrics or {},
+            "pixmap_previews": [
+                {
+                    "page_number": preview["page_number"],
+                    "image": preview["media"],
+                }
+                for preview in pixmap_previews
+            ],
         })
         register_stage(
             PipelineStage(
@@ -179,6 +229,9 @@ class PipelineRunner:
                     "page_count": len(document.pages),
                     "pages": page_details,
                     "pixmap_metrics": pixmap_metrics or {},
+                    "pixmap_preview_paths": [
+                        preview["path"] for preview in pixmap_previews
+                    ],
                 },
                 duration_ms=parsing_duration,
             )
@@ -311,3 +364,42 @@ class PipelineRunner:
             trace_id=trace_id,
         )
         return PipelineResult(document=document, stages=stages)
+
+    def _collect_pixmap_previews(self, document: Document) -> list[dict[str, Any]]:
+        """Return Langfuse media previews for the first few pixmaps."""
+        if (
+            not LangfuseMedia
+            or not document.metadata
+            or not document.metadata.get("pixmap_assets")
+            or self.pixmap_preview_limit <= 0
+        ):
+            return []
+        pixmap_assets = document.metadata.get("pixmap_assets", {})
+        previews: list[dict[str, Any]] = []
+        sorted_keys = sorted(
+            pixmap_assets.keys(),
+            key=lambda key: int(str(key)),
+        )
+        for key in sorted_keys:
+            path = Path(pixmap_assets[key])
+            if not path.exists():
+                continue
+            try:
+                with path.open("rb") as handle:
+                    media = LangfuseMedia(
+                        content_bytes=handle.read(),
+                        content_type=mimetypes.guess_type(path.name)[0]
+                        or "image/png",
+                    )
+            except Exception:
+                continue
+            previews.append(
+                {
+                    "page_number": int(str(key)),
+                    "media": media,
+                    "path": str(path),
+                }
+            )
+            if len(previews) >= self.pixmap_preview_limit:
+                break
+        return previews
