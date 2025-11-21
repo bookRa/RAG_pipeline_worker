@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -319,6 +320,7 @@ class BCAILLM(LlamaIndexLLM):
             "response_max_tokens": self._max_tokens,
             "conversation_mode": [self._conversation_mode],
             "conversation_source": self._conversation_source,
+            "conversation_guid": str(uuid.uuid4()),  # Required by BCAI
             "skip_db_save": self._skip_db_save,
             "stream": False,  # Disable streaming for now
         }

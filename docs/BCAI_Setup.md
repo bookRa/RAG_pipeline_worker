@@ -58,7 +58,7 @@ Done! Start your application.
    curl -X POST https://bcai.web.boeing.com/bcai-public-api/conversation \
      -H "Authorization: basic YOUR_PAT_TOKEN" \
      -H "Content-Type: application/json" \
-     -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}],"stream":false}'
+     -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"test"}],"stream":false,"conversation_guid":"test-123"}'
    ```
 3. If 403 persists, contact BCAI support
 

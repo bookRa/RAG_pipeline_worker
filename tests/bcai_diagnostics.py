@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from pathlib import Path
 
 # Add project root to path
@@ -216,6 +217,7 @@ def check_authentication(api_base: str, api_key: str) -> bool:
         "stream": False,
         "skip_db_save": True,
         "conversation_mode": ["non-rag"],
+        "conversation_guid": str(uuid.uuid4()),  # Required by BCAI
     }
     
     url = f"{api_base}/bcai-public-api/conversation"

@@ -109,6 +109,7 @@ class TestBCAILLM:
         assert payload["messages"][0]["content"] == "Test prompt"
         assert payload["conversation_mode"] == ["non-rag"]
         assert payload["skip_db_save"] is True
+        assert "conversation_guid" in payload  # Required by BCAI
 
     @patch('src.app.adapters.llama_index.bcai_llm.requests.Session')
     def test_bcai_llm_chat(self, mock_session_class, mock_bcai_response):
