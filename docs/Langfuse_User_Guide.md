@@ -44,3 +44,4 @@ This guide explains how our pipeline emits Langfuse traces and how engineers can
 
 For deeper architectural context see `docs/Pipeline_Data_Flow_and_Observability_Report.md`. For roadmap work items see `docs/Observability_Integration_TODO.md`.
 
+
