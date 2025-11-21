@@ -85,6 +85,7 @@ class TestBCAILLM:
         # Setup mock
         mock_session = Mock()
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = mock_bcai_response
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -121,6 +122,7 @@ class TestBCAILLM:
         # Setup mock
         mock_session = Mock()
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = mock_bcai_response
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -152,6 +154,7 @@ class TestBCAILLM:
         # Setup mock
         mock_session = Mock()
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = mock_bcai_response
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -226,6 +229,7 @@ class TestBCAIEmbedding:
         # Setup mock
         mock_session = Mock()
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = mock_bcai_embedding_response
         mock_response.raise_for_status.return_value = None
         mock_session.post.return_value = mock_response
@@ -252,6 +256,7 @@ class TestBCAIEmbedding:
         # Setup mock for batch response
         mock_session = Mock()
         mock_response = Mock()
+        mock_response.status_code = 200
         batch_response = {
             "data": [
                 {"embedding": [0.1] * 1536, "index": 0},

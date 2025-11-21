@@ -334,8 +334,17 @@ class BCAILLM(LlamaIndexLLM):
         
         url = f"{self._api_base}/bcai-public-api/conversation"
         
+        # Log payload for debugging (first 200 chars of messages)
+        import logging
+        logger = logging.getLogger(__name__)
+        debug_payload = {k: v for k, v in payload.items() if k != "messages"}
+        if "messages" in payload:
+            debug_payload["messages"] = f"[{len(payload['messages'])} messages]"
+        logger.debug(f"BCAI request payload: {debug_payload}")
+        
         # Retry logic
         last_exception = None
+        last_response_body = None
         for attempt in range(self._max_retries + 1):
             try:
                 response = self._session.post(
@@ -343,6 +352,14 @@ class BCAILLM(LlamaIndexLLM):
                     json=payload,
                     timeout=self._timeout,
                 )
+                
+                # For debugging, capture response body before raising
+                if hasattr(response, 'status_code') and response.status_code >= 400:
+                    try:
+                        last_response_body = response.text
+                    except Exception:
+                        last_response_body = None
+                
                 response.raise_for_status()
                 
                 data = response.json()
@@ -352,13 +369,20 @@ class BCAILLM(LlamaIndexLLM):
                 last_exception = exc
                 if attempt == self._max_retries:
                     break
+                # Don't retry on 4xx errors (client errors) - only 5xx and network issues
+                if hasattr(exc, 'response') and exc.response is not None:
+                    if 400 <= exc.response.status_code < 500:
+                        break  # Don't retry client errors
                 # Wait a bit before retrying (exponential backoff)
                 import time
                 time.sleep(2 ** attempt)
         
-        raise RuntimeError(
-            f"BCAI API error after {self._max_retries + 1} attempts: {last_exception}"
-        ) from last_exception
+        # Include response body in error message if available
+        error_msg = f"BCAI API error after {self._max_retries + 1} attempts: {last_exception}"
+        if last_response_body:
+            error_msg += f"\nResponse body: {last_response_body[:500]}"
+        
+        raise RuntimeError(error_msg) from last_exception
 
     def _extract_text_from_response(self, data: dict[str, Any]) -> str:
         """Extract generated text from BCAI response.
