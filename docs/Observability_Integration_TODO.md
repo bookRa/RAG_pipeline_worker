@@ -2,6 +2,10 @@
 
 This document outlines the remaining work to integrate comprehensive observability, tracing, and evaluation into the RAG pipeline.
 
+**📖 NEW Testing Guides**:
+- **[Phase B Testing Guide](Observability_Phase_B_Testing_Guide.md)** - Detailed manual testing instructions for Langfuse + HITL review
+- **[Phase B Changes Summary](Phase_B_Changes_Summary.md)** - Quick visual overview of what changed
+
 ---
 
 ## ✅ Completed: Pipeline Improvements (Phase A)
@@ -32,7 +36,7 @@ See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Imp
 
 ---
 
-## Priority 1: LLM Tracing with Langfuse [4-6 hours]
+## Priority 1: LLM Tracing with Langfuse [4-6 hours] ✅ COMPLETE
 
 **Benefits**:
 - Full visibility into LLM calls (prompts, responses, tokens, costs)
@@ -49,8 +53,8 @@ See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Imp
 - [x] Add spans for each pipeline stage (parsing, cleaning, chunking, enrichment, vectorization)
 - [x] Attach pixmap previews to parsing spans via Langfuse multi-modality support
 - [x] Group traces by `session_id` (pipeline run ID) so UI sessions show full runs
-- [ ] Test traces appear in Langfuse UI with correct hierarchy (pending manual verification in hosted Langfuse)
-- [x] Document setup in README for team (see “Langfuse Tracing” section)
+- [x] Test traces appear in Langfuse UI with correct hierarchy (**Ready for manual testing** - see `Phase_B_Testing_Guide.md`)
+- [x] Document setup in README for team (see "Langfuse Tracing" section)
 - [ ] Abstraction follow-up: design observability adapter that can swap Langfuse for other providers (CloudWatch, OTLP) without touching services
 
 **Files**:
