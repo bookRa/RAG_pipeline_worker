@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented comprehensive batch processing capabilities for the RAG pipeline with parallel processing at three levels:
+The RAG pipeline provides comprehensive batch processing capabilities with parallel processing at three levels:
 
 1. **Document-Level Parallelism**: Process multiple documents concurrently
 2. **Page-Level Parallelism**: Process pages within each document in parallel

@@ -17,7 +17,16 @@ The pipeline executes the following stages in order. Each service returns a new 
 | Enrichment | `EnrichmentService` | `enriched` | Uses `LlamaIndexSummaryAdapter` to generate document-level summary from page summaries, then creates contextualized text for each chunk following Anthropic's contextual retrieval pattern |
 | Vectorization | `VectorService` | `vectorized` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`, preserving both context-enriched and original text for retrieval and generation |
 
-`PipelineRunner` coordinates these services, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
+### Processing Modes
+
+**Single Document Mode**: `PipelineRunner` coordinates these services sequentially, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
+
+**Batch Processing Mode**: `BatchPipelineRunner` processes multiple documents concurrently with:
+- **Document-level parallelism**: Process multiple documents simultaneously (configurable concurrency)
+- **Page-level parallelism**: Within each document, pages are processed in parallel for parsing and cleaning stages
+- **Pixmap parallelism**: PDF page rendering uses process pools (3-5x speedup)
+- **Rate limiting**: Token bucket algorithm prevents API throttling
+- **Progress tracking**: Real-time updates via Server-Sent Events (SSE)
 
 ### Visual Pipeline Flow
 
@@ -140,6 +149,8 @@ RAG_pipeline_worker/
 
 ## FastAPI Surface
 
+### Single Document Endpoints
+
 - `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
 - `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
 - `GET /documents/{doc_id}` – Fetches a single processed document.
@@ -151,7 +162,19 @@ RAG_pipeline_worker/
   - Track stage durations and component-aware chunking statistics
   - Preview document files served from `static/uploads/`
 
-The dashboard uses only server-side templates (Jinja2) plus vanilla JS for auto-refreshing. No frontend build tooling required.
+### Batch Processing Endpoints
+
+- `POST /batch/upload` – Upload multiple files (up to 50) for concurrent processing
+- `GET /batch/{batch_id}` – Get batch status with per-document progress
+- `GET /batch/{batch_id}/stream` – Server-Sent Events (SSE) endpoint for real-time progress updates
+- `GET /batch/` – List recent batches with completion statistics
+- `GET /batch-dashboard/` – Interactive batch upload and monitoring UI with:
+  - Multiple file upload with preview
+  - Real-time progress via SSE (per-document and per-stage)
+  - Batch-level statistics (completed/failed counts)
+  - Recent batch history
+
+The dashboards use only server-side templates (Jinja2) plus vanilla JS for auto-refreshing and SSE. No frontend build tooling required.
 
 ---
 
@@ -182,7 +205,7 @@ LLM__MODEL=gpt-4o-mini
 LLM__USE_STRUCTURED_OUTPUTS=true  # Use native JSON mode for reliability
 LLM__USE_STREAMING=false          # Disable for structured outputs
 
-# Chunking Strategy (NEW in llama-index branch)
+# Chunking Strategy
 CHUNKING__STRATEGY=component           # "component", "hybrid", or "fixed"
 CHUNKING__COMPONENT_MERGE_THRESHOLD=100  # Min tokens to merge small components
 CHUNKING__MAX_COMPONENT_TOKENS=500      # Max tokens before splitting large components
@@ -193,6 +216,19 @@ CHUNKING__CHUNK_OVERLAP=50
 USE_VISION_CLEANING=false    # Enable vision-based cleaning (optional)
 USE_LLM_SUMMARIZATION=true   # Use LLM for summaries (vs truncation)
 CHUNKING__INCLUDE_IMAGES=true  # Generate 300 DPI pixmaps for parsing
+
+# Batch Processing
+BATCH__MAX_CONCURRENT_DOCUMENTS=5      # Max documents to process in parallel
+BATCH__MAX_WORKERS_PER_DOCUMENT=4      # Max workers per document
+BATCH__ENABLE_PAGE_PARALLELISM=true    # Parallel page processing
+BATCH__RATE_LIMIT_REQUESTS_PER_MINUTE=60  # API rate limit
+BATCH__PIXMAP_PARALLEL_WORKERS=4       # CPU cores for pixmap rendering
+
+# Observability
+LANGFUSE__ENABLED=false                # Enable Langfuse tracing
+LANGFUSE__PUBLIC_KEY=pk-lf-...         # Langfuse public key
+LANGFUSE__SECRET_KEY=sk-lf-...         # Langfuse secret key
+LANGFUSE__HOST=https://cloud.langfuse.com  # Langfuse instance URL
 
 # Vector Store
 VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
@@ -315,16 +351,13 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
 
 ### Deep Dives
-- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - **NEW!** Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
-- [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
-- [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
+- [Batch Processing](docs/Batch_Processing_Implementation_Summary.md) - Comprehensive guide to batch processing with parallelism, rate limiting, and observability
+- [Batch Observability Quick Start](docs/Batch_Observability_Quick_Start.md) - Get started with clean logging and Langfuse tracing for batch operations
 
 ### Implementation Records
-- [Pipeline Improvements Status](docs/Pipeline_Improvements_Implementation_Status.md) - Component-aware chunking and contextual retrieval implementation
-- [Structured Output Summary](docs/Structured_Output_Implementation_Summary.md) - LlamaIndex best practices for reliable JSON extraction
-
-### Next Steps
-- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
+- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration roadmap
+- [DocumentDB Integration](docs/DocumentDB_Integration_Summary.md) - Vector store persistence with AWS DocumentDB
 
 ### Prompts & Research
 - [Prompts Guide](docs/prompts/README.md) - How to tune LLM behavior across pipeline stages

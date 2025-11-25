@@ -1,38 +1,36 @@
-# RAG Pipeline: Observability Integration TODO
+# RAG Pipeline: Observability Integration Roadmap
 
-This document outlines the remaining work to integrate comprehensive observability, tracing, and evaluation into the RAG pipeline.
+This document outlines the roadmap for comprehensive observability, tracing, and evaluation in the RAG pipeline.
 
 ---
 
-## ✅ Completed: Pipeline Improvements (Phase A)
+## ✅ Completed
 
-**All Phase A items have been completed on the `llama-index` branch.**
-
-See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Implementation_Status.md) for full implementation details.
-
-### Key Achievements
-
+### Pipeline Architecture Improvements
 ✅ **Component-Aware Chunking**: Tables, images, and text blocks are preserved as semantic units  
 ✅ **Table Summarization**: LLM-generated summaries for all table components  
 ✅ **Page Summarization**: LLM-generated summaries for each page  
-✅ **Document-Level Summarization**: Generated from page summaries (not just first page)  
+✅ **Document-Level Summarization**: Generated from page summaries  
 ✅ **Contextualized Retrieval**: Anthropic's contextual retrieval pattern implemented  
 ✅ **Hierarchical Context**: Document → Page → Section → Component metadata attached to chunks  
 ✅ **LLM Integration**: Vision parsing, text cleaning, summarization via LlamaIndex adapters  
-✅ **Structured Outputs**: Using `as_structured_llm()` for reliable JSON extraction  
+✅ **Structured Outputs**: Using `as_structured_llm()` for reliable JSON extraction
+
+### Batch Processing & Observability
+✅ **Batch Processing**: Multi-document concurrent processing with rate limiting  
+✅ **Batch Observability**: Clean logging with Langfuse integration  
+✅ **Multi-Level Parallelism**: Document, page, and pixmap-level parallel processing  
+✅ **Real-Time Progress**: Server-Sent Events (SSE) for batch monitoring  
+✅ **Langfuse Integration**: Basic tracing with batch_id correlation  
 
 ---
 
-## 🎯 Current Priority: Observability Integration (Phase B)
+## 🎯 In Progress
 
-**Now that the pipeline architecture is solid, we can add comprehensive observability.**
+## Priority 1: Enhanced Langfuse Integration
 
-**Timeline**: 1-2 weeks  
-**Goal**: Trace all LLM calls, measure quality, enable HITL workflows
-
----
-
-## Priority 1: LLM Tracing with Langfuse [4-6 hours]
+**Status**: Basic integration complete for batch processing  
+**Remaining Work**: Extend to single-document pipeline
 
 **Benefits**:
 - Full visibility into LLM calls (prompts, responses, tokens, costs)
@@ -41,33 +39,29 @@ See [`Pipeline_Improvements_Implementation_Status.md`](Pipeline_Improvements_Imp
 - Links between pipeline stages and LLM operations
 
 **Tasks**:
-- [ ] Install `langfuse` and `llama-index-callbacks-langfuse` packages
-- [ ] Add Langfuse configuration to `Settings` (public key, secret key, host, enable flag)
-- [ ] Initialize `LlamaIndexCallbackHandler` in `AppContainer` if enabled
-- [ ] Set global callback manager for LlamaIndex
-- [ ] Add custom trace context in `PipelineRunner.run()` for document processing
-- [ ] Add spans for each pipeline stage (parsing, cleaning, chunking, enrichment, vectorization)
-- [ ] Test traces appear in Langfuse UI with correct hierarchy
-- [ ] Document setup in README for team
+- [x] Install `langfuse` and `llama-index-callbacks-langfuse` packages
+- [x] Add Langfuse configuration to `Settings`
+- [x] Implement batch observability with Langfuse tracing
+- [ ] Extend Langfuse tracing to single-document pipeline
+- [ ] Add detailed LLM call metrics (token counts, costs per stage)
+- [ ] Implement prompt versioning with Langfuse
+- [ ] Add custom trace metadata for filtering and analysis
 
-**Files**:
-- `requirements.txt`
-- `src/app/config.py`
-- `src/app/container.py`
-- `src/app/services/pipeline_runner.py`
-- `README.md` (update with Langfuse setup instructions)
-
-**Environment Variables**:
+**Configuration**:
 ```bash
-ENABLE_LANGFUSE=true
-LANGFUSE_PUBLIC_KEY=pk-...
-LANGFUSE_SECRET_KEY=sk-...
-LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
+LANGFUSE__ENABLED=true
+LANGFUSE__PUBLIC_KEY=pk-lf-...
+LANGFUSE__SECRET_KEY=sk-lf-...
+LANGFUSE__HOST=https://cloud.langfuse.com
 ```
 
 ---
 
-## Priority 2: Human-in-the-Loop Review UI [1 week]
+---
+
+## 📋 Planned
+
+## Priority 2: Human-in-the-Loop Review UI
 
 **Benefits**:
 - Surface segments flagged by cleaning LLM
@@ -109,7 +103,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-## Priority 3: Tune Cleaning Prompts for Better Review Flags [2-3 hours]
+## Priority 3: Tune Cleaning Prompts for Better Review Flags
 
 **Benefits**:
 - More accurate flagging of segments that actually need review
@@ -142,7 +136,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-## Priority 4: Integrate Ragas for Quality Evaluation [1-2 weeks]
+## Priority 4: Integrate Ragas for Quality Evaluation
 
 **Benefits**:
 - Quantitative quality metrics (faithfulness, relevance, precision, recall)
@@ -185,7 +179,11 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-## Future Enhancement: Semantic Chunking Experiments [1 week]
+---
+
+## 🔮 Future Enhancements
+
+## Semantic Chunking Experiments
 
 **Note**: Component-aware chunking already provides semantic boundaries. This would be experimental/comparative work.
 
@@ -216,7 +214,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 
 ---
 
-## Future Enhancement: Query-time Observability [1 week]
+## Query-time Observability
 
 **Benefits**:
 - Trace user queries end-to-end (retrieval → ranking → generation)
@@ -255,9 +253,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted URL
 - `src/app/services/retrieval_service.py` (new, retrieval logic)
 - `src/app/services/generation_service.py` (new, response generation)
 
----
-
-## Long-term Vision (3-6 months)
+## Long-Term Vision
 
 ### Prompt Version Management
 
@@ -313,25 +309,11 @@ Track these metrics to measure observability improvements:
 
 ---
 
-## Team Assignments (Example)
-
-- **Week 1**: Engineer A (Fix summaries), Engineer B (Langfuse integration)
-- **Week 2**: Engineer A (HITL UI), Engineer B (Ragas evaluation)
-- **Week 3**: Engineer A (Semantic chunking), Engineer B (Query observability)
-- **Month 2-3**: Continuous improvement, fine-tuning, monitoring
-
----
-
 ## Next Steps
 
-1. Review this TODO with team in planning meeting
-2. Assign owners and deadlines for each item
-3. Create Jira/GitHub issues for tracking
-4. Start with immediate actions (highest ROI)
-5. Schedule weekly check-ins on observability progress
-6. Update this doc as tasks are completed
-
----
-
-**Questions or blockers?** Contact the AI agent for implementation guidance!
+1. Extend Langfuse integration to single-document pipeline
+2. Build HITL review UI for flagged segments
+3. Integrate Ragas for automated quality evaluation
+4. Implement query-time observability for RAG queries
+5. Add prompt versioning and A/B testing capabilities
 

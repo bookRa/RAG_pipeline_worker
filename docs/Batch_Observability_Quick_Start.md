@@ -2,7 +2,7 @@
 
 ## What Changed?
 
-The batch processing pipeline now has **clean, minimal logging** instead of noisy JSON dumps, with full **Langfuse tracing** support for expert observability.
+The batch processing pipeline has **clean, minimal logging** instead of noisy JSON dumps, with full **Langfuse tracing** support for expert observability.
 
 ## Before vs After
 

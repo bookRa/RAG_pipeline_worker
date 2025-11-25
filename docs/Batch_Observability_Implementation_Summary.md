@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the implementation of clean, minimal batch observability logging with Langfuse integration for the RAG pipeline. The new system provides:
+This document describes clean, minimal batch observability logging with Langfuse integration for the RAG pipeline. The system provides:
 
 1. **Clean, minimal progress logging** during batch operations (no verbose JSON dumps)
 2. **Granular timestamps** for each step (millisecond precision)
@@ -42,7 +42,7 @@ When pages are processed in parallel using multiple threads or processes, the lo
 
 ### 4. Langfuse Integration
 
-All observability events are sent to Langfuse with proper tracing hierarchy:
+Observability events are sent to Langfuse with proper tracing hierarchy:
 
 - **Batch-level trace**: Groups all documents in a batch
 - **Document-level traces**: Each document gets its own trace
@@ -77,7 +77,7 @@ A specialized observability recorder that provides:
 
 #### 2. Langfuse Configuration (src/app/config.py)
 
-New `LangfuseSettings` configuration:
+`LangfuseSettings` configuration:
 
 ```python
 class LangfuseSettings(BaseModel):
