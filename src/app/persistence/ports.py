@@ -4,6 +4,7 @@ from typing import Protocol
 
 from ..domain.models import Document
 from ..domain.run_models import PipelineResult, PipelineRunRecord, PipelineStage
+from ..domain.batch_models import BatchJob, DocumentJob
 
 
 class PipelineRunRepository(Protocol):
@@ -46,3 +47,22 @@ class DocumentRepository(Protocol):
 
     def list(self) -> list[Document]:
         """Return all documents known to the repository."""
+
+
+class BatchJobRepository(Protocol):
+    """Port defining CRUD for batch processing jobs."""
+
+    def create_batch(self, batch: BatchJob) -> None:
+        """Persist a new batch job."""
+
+    def get_batch(self, batch_id: str) -> BatchJob | None:
+        """Fetch a batch job by id."""
+
+    def update_batch(self, batch: BatchJob) -> None:
+        """Update an existing batch job."""
+
+    def update_document_job(self, batch_id: str, doc_job: DocumentJob) -> None:
+        """Update a specific document job within a batch."""
+
+    def list_batches(self, limit: int = 20) -> list[BatchJob]:
+        """Return the most recent batch jobs."""
