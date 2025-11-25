@@ -227,3 +227,4 @@ class FileSystemBatchJobRepository(BatchJobRepository):
         with path.open("r", encoding="utf-8") as handle:
             return json.load(handle)
 
+

@@ -160,3 +160,4 @@ class BatchUploadUseCase:
                 batch.status = "failed"
                 self.batch_repository.update_batch(batch)
 
+

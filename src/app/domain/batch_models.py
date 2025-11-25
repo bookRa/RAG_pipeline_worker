@@ -149,3 +149,4 @@ class BatchJob:
             self.status = "failed"
             self.completed_at = datetime.utcnow()
 
+
