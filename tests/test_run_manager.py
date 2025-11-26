@@ -33,6 +33,7 @@ class StubPipelineRunner(PipelineRunner):
         *,
         file_bytes: bytes | None = None,
         progress_callback=None,
+        run_id: str | None = None,
     ) -> PipelineResult:
         if self._raise:
             raise RuntimeError("runner failed")

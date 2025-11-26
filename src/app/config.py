@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     # NEW: Pipeline improvement settings
     use_vision_cleaning: bool = False  # Enable vision-based cleaning (requires vision-capable LLM)
     use_llm_summarization: bool = True  # Enable LLM-based document/chunk summarization
+    
+    # Langfuse observability settings
+    enable_langfuse: bool = Field(default=False)
+    langfuse_public_key: str = Field(default="")
+    langfuse_secret_key: str = Field(default="", repr=False)
+    langfuse_host: str = Field(default="https://cloud.langfuse.com")
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),

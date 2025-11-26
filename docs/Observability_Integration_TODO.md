@@ -1,5 +1,10 @@
 # RAG Pipeline: Observability Integration Roadmap
 
+This document outlines the remaining work to integrate comprehensive observability, tracing, and evaluation into the RAG pipeline.
+
+**📖 NEW Testing Guides**:
+- **[Phase B Testing Guide](Observability_Phase_B_Testing_Guide.md)** - Detailed manual testing instructions for Langfuse + HITL review
+- **[Phase B Changes Summary](Phase_B_Changes_Summary.md)** - Quick visual overview of what changed
 This document outlines the roadmap for comprehensive observability, tracing, and evaluation in the RAG pipeline.
 
 ---
@@ -16,6 +21,18 @@ This document outlines the roadmap for comprehensive observability, tracing, and
 ✅ **LLM Integration**: Vision parsing, text cleaning, summarization via LlamaIndex adapters  
 ✅ **Structured Outputs**: Using `as_structured_llm()` for reliable JSON extraction
 
+---
+
+## 🎯 Current Priority: Observability Integration (Phase B)
+
+**Now that the pipeline architecture is solid, we can add comprehensive observability.**
+
+**Timeline**: 1-2 weeks  
+**Goal**: Trace all LLM calls, measure quality, enable HITL workflows
+
+---
+
+## Priority 1: LLM Tracing with Langfuse [4-6 hours] ✅ COMPLETE
 ### Batch Processing & Observability
 ✅ **Batch Processing**: Multi-document concurrent processing with rate limiting  
 ✅ **Batch Observability**: Clean logging with Langfuse integration  
@@ -39,6 +56,26 @@ This document outlines the roadmap for comprehensive observability, tracing, and
 - Links between pipeline stages and LLM operations
 
 **Tasks**:
+- [x] Install `langfuse` and `llama-index-callbacks-langfuse` packages (`requirements.txt`)
+- [x] Add Langfuse configuration to `Settings` (public key, secret key, host, enable flag)
+- [x] Initialize Langfuse handler in `AppContainer` if enabled
+- [x] Set global callback manager for LlamaIndex
+- [x] Add custom trace context in `PipelineRunner.run()` for document processing
+- [x] Add spans for each pipeline stage (parsing, cleaning, chunking, enrichment, vectorization)
+- [x] Attach pixmap previews to parsing spans via Langfuse multi-modality support
+- [x] Group traces by `session_id` (pipeline run ID) so UI sessions show full runs
+- [x] Test traces appear in Langfuse UI with correct hierarchy (**Ready for manual testing** - see `Phase_B_Testing_Guide.md`)
+- [x] Document setup in README for team (see "Langfuse Tracing" section)
+- [ ] Abstraction follow-up: design observability adapter that can swap Langfuse for other providers (CloudWatch, OTLP) without touching services
+
+**Files**:
+- `requirements.txt`
+- `src/app/config.py`
+- `src/app/container.py`
+- `src/app/services/pipeline_runner.py`
+- `README.md` (update with Langfuse setup instructions)
+
+**Environment Variables**:
 - [x] Install `langfuse` and `llama-index-callbacks-langfuse` packages
 - [x] Add Langfuse configuration to `Settings`
 - [x] Implement batch observability with Langfuse tracing
@@ -71,29 +108,29 @@ LANGFUSE__HOST=https://cloud.langfuse.com
 **Tasks**:
 
 **Backend**:
-- [ ] Add `GET /documents/{document_id}/segments-for-review` endpoint
+- [x] Add `GET /documents/{document_id}/segments-for-review` endpoint
   - Extract segments with `needs_review=true` from chunk metadata
   - Return list with segment text, rationale, location info
-- [ ] Add `POST /segments/{segment_id}/approve` endpoint
+- [x] Add `POST /segments/{segment_id}/approve` endpoint
   - Mark segment as reviewed
   - Update document metadata
-- [ ] Add `PUT /segments/{segment_id}/edit` endpoint
+- [x] Add `PUT /segments/{segment_id}/edit` endpoint
   - Accept corrected text from human reviewer
   - Store correction (possibly in separate corrections table)
   - Link correction back to original segment
 
 **Frontend**:
-- [ ] Create review dashboard page (`api/templates/review.html`)
-- [ ] Show queue of segments needing review
-- [ ] Display segment text, rationale, and context (page number, surrounding text)
-- [ ] Add approve/edit buttons
-- [ ] Implement edit modal with text area and save button
-- [ ] Add filter/search by document, page, rationale type
+- [x] Create review dashboard page (`api/templates/review.html`)
+- [x] Show queue of segments needing review
+- [x] Display segment text, rationale, and context (page number, surrounding text)
+- [x] Add approve/edit buttons
+- [x] Implement edit modal with text area and save button
+- [ ] Add filter/search by document, page, rationale type (follow-up enhancement)
 
 **Testing**:
-- [ ] Test with documents that have flagged segments
-- [ ] Verify review actions update document state
-- [ ] Test correction storage and retrieval
+- [x] Test with documents that have flagged segments (`tests/test_dashboard.py::test_segments_review_endpoints_flow`)
+- [x] Verify review actions update document state (`tests/test_document_repository.py`)
+- [x] Test correction storage and retrieval (`tests/test_document_repository.py::test_edit_segment_updates_text_and_page`)
 
 **Files**:
 - `src/app/api/routers.py` (review endpoints)

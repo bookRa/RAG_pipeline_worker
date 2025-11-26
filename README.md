@@ -154,6 +154,9 @@ RAG_pipeline_worker/
 - `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
 - `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
 - `GET /documents/{doc_id}` – Fetches a single processed document.
+- `GET /documents/{document_id}/segments-for-review` – Surfaces every segment flagged by the cleaning LLM (`needs_review=true`) along with rationale, page number, and chunk metadata for HITL workflows.
+- `POST /segments/{segment_id}/approve` – Marks a flagged segment as reviewed/approved and records the review action inside `review_history`.
+- `PUT /segments/{segment_id}/edit` – Stores human corrections for a flagged segment while keeping the original text for auditing/fine-tuning.
 - `GET /dashboard` – Renders the manual test harness with real-time pipeline monitoring:
   - Upload documents and track processing through all stages
   - Background execution via `PipelineRunManager.run_async` with live polling
@@ -161,6 +164,7 @@ RAG_pipeline_worker/
   - Inspect chunk metadata including component type and contextualized text
   - Track stage durations and component-aware chunking statistics
   - Preview document files served from `static/uploads/`
+- `GET /dashboard/review` – Human-in-the-loop queue that consumes the APIs above so reviewers can approve or edit segments inline and watch the queue drain in real time.
 
 ### Batch Processing Endpoints
 
@@ -258,6 +262,25 @@ echo "LLM__MODEL=gpt-4o-mini" >> .env
 
 In hosted environments (Render, AWS, etc.) define the same variables through your platform’s secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
 
+### Langfuse Tracing
+
+Langfuse instrumentation (Phase B) is wired into `src/app/container.py` and `PipelineRunner`. When enabled, each pipeline run emits a root trace named `document_processing_pipeline` plus child spans for ingestion, parsing, cleaning, chunking, enrichment, and vectorization. Stage metadata (chunk counts, cleaning profiles, summaries, etc.) is attached to every span, and the final trace ID flows back through the logging adapter so you can correlate console logs with Langfuse.
+
+1. Install dependencies (already in `requirements.txt`): `langfuse` and `llama-index-callbacks-langfuse`.
+2. Add the following to `.env` (or export them before starting the API):
+
+   ```bash
+   ENABLE_LANGFUSE=true
+   LANGFUSE_PUBLIC_KEY=pk-your-key
+   LANGFUSE_SECRET_KEY=sk-your-key
+   LANGFUSE_HOST=https://cloud.langfuse.com  # or your self-hosted URL
+   ```
+
+3. Start the app (`uvicorn src.app.main:app --reload`) and upload a document via `/dashboard` or `POST /upload`.
+4. Open the Langfuse UI → Traces to confirm the run hierarchy. Each span should include timing plus structured metadata such as chunk counts, pixmap metrics, and cleaning profiles.
+
+Set `ENABLE_LANGFUSE=false` (default) to fall back to structured logging without Langfuse dependencies.
+
 ---
 
 ## Getting Started
@@ -324,13 +347,44 @@ PIPELINE_STAGE_LATENCY=0.05 uvicorn src.app.main:app --reload
 ### Run the Tests
 
 ```bash
-pytest              # full suite
-pytest tests/test_architecture.py  # enforce hexagonal import rules
+pytest              # Fast unit tests (default, uses mocks, completes in seconds)
+pytest tests/test_architecture.py  # Enforce hexagonal import rules
 ```
 
-- `tests/test_services.py` covers every pipeline stage plus immutability guarantees.
-- `tests/test_dashboard.py` exercises the background-run workflow.
-- `tests/test_pdf_parser.py` asserts that `pdfplumber` parsing works and errors are handled gracefully.
+**By default, all tests use mock LLM providers and complete in seconds.** No API keys required.
+
+#### Test Categories
+
+- **Unit Tests** (default): Fast tests using mocks - `pytest` runs these automatically
+- **Contract Tests**: Live API integration tests - `RUN_CONTRACT_TESTS=1 pytest -m contract`
+- **RAG Quality Tests**: Ragas evaluation tests - `RUN_RAG_TESTS=1 pytest tests/evaluation/`
+
+#### Quick Reference
+
+```bash
+# Fast unit tests only (default)
+pytest
+
+# Skip slow tests
+pytest -m "not slow"
+
+# Run contract tests (requires API keys)
+RUN_CONTRACT_TESTS=1 pytest -m contract
+
+# Run RAG quality tests (requires API keys)
+RUN_RAG_TESTS=1 pytest tests/evaluation/
+
+# Run specific test file
+pytest tests/test_services.py
+```
+
+**📖 For detailed testing documentation, see [TESTING.md](docs/TESTING.md)**
+
+Key test files:
+- `tests/test_services.py` - Pipeline stage services and immutability guarantees
+- `tests/test_dashboard.py` - Dashboard workflow and background runs
+- `tests/test_pdf_parser.py` - PDF parsing adapter tests
+- `tests/test_architecture.py` - Hexagonal architecture compliance
 
 ---
 
@@ -349,13 +403,23 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 - [README](README.md) - Start here for setup and overview (you are here)
 - [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
+- [Testing Guide](docs/TESTING.md) - **NEW!** Comprehensive test suite documentation and running instructions
 
 ### Deep Dives
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
+- [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
+- [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
 - [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
 - [Batch Processing](docs/Batch_Processing_Implementation_Summary.md) - Comprehensive guide to batch processing with parallelism, rate limiting, and observability
 - [Batch Observability Quick Start](docs/Batch_Observability_Quick_Start.md) - Get started with clean logging and Langfuse tracing for batch operations
 
 ### Implementation Records
+- [Pipeline Improvements Status](docs/Pipeline_Improvements_Implementation_Status.md) - Component-aware chunking and contextual retrieval implementation
+- [Structured Output Summary](docs/Structured_Output_Implementation_Summary.md) - LlamaIndex best practices for reliable JSON extraction
+
+### Next Steps
+- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
+- [Langfuse Usage Guide](docs/Langfuse_User_Guide.md) - How we instrument traces and inspect runs in the Langfuse UI
 - [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration roadmap
 - [DocumentDB Integration](docs/DocumentDB_Integration_Summary.md) - Vector store persistence with AWS DocumentDB
 

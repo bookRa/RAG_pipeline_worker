@@ -16,9 +16,15 @@ llama-index-llms-openai>=0.2.0
 llama-index-embeddings-openai>=0.2.0
 pymupdf
 llama-index-multi-modal-llms-openai
+llama-index-callbacks-langfuse
 
 pillow
+ragas
+datasets
+packaging<24
+langfuse>=2.60.10,<3
 pymongo>=4.0.0
+
 sse-starlette>=1.8.0
 
 # Observability and tracing

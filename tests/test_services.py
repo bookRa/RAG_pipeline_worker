@@ -428,7 +428,7 @@ class StubObservabilityRecorder:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict]] = []
 
-    def record_event(self, stage: str, details: dict | None = None) -> None:
+    def record_event(self, stage: str, details: dict | None = None, trace_id: str | None = None) -> None:
         self.events.append((stage, details or {}))
 
 

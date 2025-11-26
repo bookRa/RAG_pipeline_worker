@@ -27,6 +27,8 @@ from .persistence.adapters.filesystem import FileSystemPipelineRunRepository
 from .persistence.adapters.ingestion_filesystem import FileSystemIngestionRepository
 from .persistence.adapters.batch_filesystem import FileSystemBatchJobRepository
 from .observability.logger import LoggingObservabilityRecorder
+from .observability.langfuse_handler import PipelineLangfuseHandler
+from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase
 from .application.use_cases import GetDocumentUseCase, ListDocumentsUseCase, UploadDocumentUseCase, BatchUploadUseCase
 from .services.chunking_service import ChunkingService
 from .services.cleaning_service import CleaningService
@@ -74,6 +76,7 @@ class AppContainer:
         self.text_splitter = None
 
         self.observability = LoggingObservabilityRecorder()
+        self.langfuse_handler = None  # Will be set if Langfuse is enabled
         self.langfuse_handler = None
         
         # Initialize Langfuse if enabled
@@ -107,6 +110,37 @@ class AppContainer:
         )
         try:
             configure_llama_index(self.settings)
+            
+            # Setup Langfuse callback handler if enabled
+            if self.settings.enable_langfuse:
+                try:
+                    from llama_index.core import Settings as LlamaIndexSettings
+                    from llama_index.core.callbacks import CallbackManager
+                    
+                    langfuse_handler = PipelineLangfuseHandler(
+                        public_key=self.settings.langfuse_public_key,
+                        secret_key=self.settings.langfuse_secret_key,
+                        host=self.settings.langfuse_host,
+                    )
+                    
+                    # Get existing callback manager or create new one
+                    existing_manager = LlamaIndexSettings.callback_manager
+                    handlers = []
+                    if existing_manager and existing_manager.handlers:
+                        handlers.extend(existing_manager.handlers)
+                    handlers.append(langfuse_handler)
+                    
+                    # Set global callback manager with Langfuse handler
+                    LlamaIndexSettings.callback_manager = CallbackManager(handlers)
+                    
+                    # Store handler reference for custom traces
+                    self.langfuse_handler = langfuse_handler
+                    logger.info("Langfuse callback handler initialized")
+                except ImportError as exc:
+                    logger.warning("Langfuse packages not installed. Install 'langfuse' and 'llama-index-callbacks-langfuse' to enable tracing: %s", exc)
+                except Exception as exc:
+                    logger.warning("Failed to initialize Langfuse callback handler: %s", exc)
+            
             llm_client = get_llama_llm()
             embed_model = get_llama_embedding_model()
             self.text_splitter = get_llama_text_splitter()
@@ -195,6 +229,7 @@ class AppContainer:
             enrichment=self.enrichment_service,
             vectorization=self.vector_service,
             observability=self.observability,
+            langfuse_handler=self.langfuse_handler,
         )
         self.pipeline_run_manager = PipelineRunManager(
             self.run_repository,

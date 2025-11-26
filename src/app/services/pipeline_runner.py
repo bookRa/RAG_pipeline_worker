@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import logging
+import mimetypes
+import os
 from datetime import datetime
+from pathlib import Path
 from time import perf_counter
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
+
+try:
+    from langfuse.media import LangfuseMedia
+except ImportError:  # pragma: no cover - optional dependency
+    LangfuseMedia = None  # type: ignore[attr-defined]
 
 from ..application.interfaces import ObservabilityRecorder
 from ..domain.models import Document
@@ -13,6 +22,9 @@ from .enrichment_service import EnrichmentService
 from .parsing_service import ParsingService
 from .ingestion_service import IngestionService
 from .vector_service import VectorService
+
+
+DEFAULT_PIXMAP_PREVIEW_LIMIT = int(os.getenv("LANGFUSE_PIXMAP_PREVIEW_LIMIT", "2"))
 
 
 class PipelineRunner:
@@ -27,6 +39,7 @@ class PipelineRunner:
         enrichment: EnrichmentService,
         vectorization: VectorService,
         observability: ObservabilityRecorder,
+        langfuse_handler: Any | None = None,
     ) -> None:
         self.ingestion = ingestion
         self.parsing = parsing
@@ -35,6 +48,8 @@ class PipelineRunner:
         self.enrichment = enrichment
         self.vectorization = vectorization
         self.observability = observability
+        self.langfuse_handler = langfuse_handler
+        self.pixmap_preview_limit = max(0, DEFAULT_PIXMAP_PREVIEW_LIMIT)
 
     STAGE_SEQUENCE: Iterable[tuple[str, str]] = (
         ("ingestion", "Ingestion"),
@@ -49,10 +64,68 @@ class PipelineRunner:
         self,
         document: Document,
         *,
+        run_id: str | None = None,
         file_bytes: bytes | None = None,
         progress_callback: Callable[[PipelineStage, Document], None] | None = None,
     ) -> PipelineResult:
         stages: list[PipelineStage] = []
+        
+        # Create Langfuse trace for this pipeline run if handler is available
+        langfuse_trace = None
+        langfuse_trace_id = None
+        session_id = (
+            run_id
+            or (document.metadata or {}).get("source_session_id")
+            or document.id
+        )
+        trace_name = f"document_pipeline::{document.filename}"
+        trace_tags = ["pipeline", document.file_type]
+        if self.langfuse_handler and hasattr(self.langfuse_handler, 'langfuse'):
+            try:
+                if hasattr(self.langfuse_handler, "set_trace_params"):
+                    try:
+                        self.langfuse_handler.set_trace_params(
+                            name=trace_name,
+                            session_id=session_id,
+                            metadata={
+                                "document_id": document.id,
+                                "filename": document.filename,
+                                "run_id": run_id,
+                            },
+                            tags=trace_tags,
+                        )
+                    except Exception:
+                        pass
+                langfuse_trace = self.langfuse_handler.langfuse.trace(
+                    name=trace_name,
+                    session_id=session_id,
+                    input={
+                        "document_id": document.id,
+                        "filename": document.filename,
+                    },
+                    metadata={
+                        "file_type": document.file_type,
+                        "size_bytes": document.size_bytes,
+                        "run_id": run_id,
+                    },
+                    tags=trace_tags,
+                )
+                langfuse_trace_id = langfuse_trace.id if hasattr(langfuse_trace, 'id') else None
+                
+                # Add trace ID to document metadata for linking
+                if langfuse_trace_id and document.metadata:
+                    document = document.model_copy(
+                        update={"metadata": {**document.metadata, "langfuse_trace_id": langfuse_trace_id}}
+                    )
+                if hasattr(self.langfuse_handler, "set_root"):
+                    try:
+                        self.langfuse_handler.set_root(langfuse_trace, update_root=False)
+                    except Exception:
+                        pass
+            except Exception as exc:
+                # Log but don't fail if Langfuse tracing fails
+                logger = logging.getLogger(__name__)
+                logger.warning("Failed to create Langfuse trace: %s", exc)
 
         def register_stage(stage: PipelineStage) -> None:
             stage.completed_at = datetime.utcnow()
@@ -60,8 +133,36 @@ class PipelineRunner:
             if progress_callback:
                 progress_callback(stage, document)
 
+        def create_langfuse_span(stage_name: str, input_data: dict[str, Any] | None = None) -> Any:
+            """Create a Langfuse span for a pipeline stage."""
+            if langfuse_trace and hasattr(langfuse_trace, 'span'):
+                try:
+                    return langfuse_trace.span(
+                        name=stage_name,
+                        input=input_data or {},
+                    )
+                except Exception:
+                    return None
+            return None
+
+        def end_langfuse_span(span: Any, output_data: dict[str, Any] | None = None) -> None:
+            """End a Langfuse span."""
+            if span and hasattr(span, 'end'):
+                try:
+                    span.end(output=output_data or {})
+                except Exception:
+                    pass
+
         stage_start = perf_counter()
+        ingestion_span = create_langfuse_span("ingestion", {"filename": document.filename})
         document = self.ingestion.ingest(document, file_bytes=file_bytes)
+        ingestion_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(ingestion_span, {
+            "status": document.status,
+            "filename": document.filename,
+            "file_type": document.file_type,
+            "size_bytes": document.size_bytes,
+        })
         register_stage(
             PipelineStage(
                 name="ingestion",
@@ -72,14 +173,16 @@ class PipelineRunner:
                     "file_type": document.file_type,
                     "size_bytes": document.size_bytes,
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=ingestion_duration,
             )
         )
 
         stage_start = perf_counter()
+        parsing_span = create_langfuse_span("parsing", {"page_count": len(document.pages)})
         document = self.parsing.parse(document, file_bytes=file_bytes)
         pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
         parsed_pages_meta = document.metadata.get("parsed_pages", {})
+        pixmap_previews = self._collect_pixmap_previews(document)
         
         # Build page details with components
         page_details = []
@@ -106,6 +209,18 @@ class PipelineRunner:
             
             page_details.append(page_data)
         
+        parsing_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(parsing_span, {
+            "page_count": len(document.pages),
+            "pixmap_metrics": pixmap_metrics or {},
+            "pixmap_previews": [
+                {
+                    "page_number": preview["page_number"],
+                    "image": preview["media"],
+                }
+                for preview in pixmap_previews
+            ],
+        })
         register_stage(
             PipelineStage(
                 name="parsing",
@@ -114,14 +229,23 @@ class PipelineRunner:
                     "page_count": len(document.pages),
                     "pages": page_details,
                     "pixmap_metrics": pixmap_metrics or {},
+                    "pixmap_preview_paths": [
+                        preview["path"] for preview in pixmap_previews
+                    ],
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=parsing_duration,
             )
         )
 
         stage_start = perf_counter()
+        cleaning_span = create_langfuse_span("cleaning")
         document = self.cleaning.clean(document)
         cleaning_report = document.metadata.get("cleaning_report", [])
+        cleaning_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(cleaning_span, {
+            "pages_cleaned": len(document.pages),
+            "profile": self.cleaning.profile,
+        })
         register_stage(
             PipelineStage(
                 name="cleaning",
@@ -130,18 +254,22 @@ class PipelineRunner:
                     "profile": self.cleaning.profile,
                     "pages": cleaning_report,
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=cleaning_duration,
             )
         )
 
         stage_start = perf_counter()
+        chunking_span = create_langfuse_span("chunking")
         document = self.chunking.chunk(document)
+        chunk_count = sum(len(page.chunks) for page in document.pages)
+        chunking_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(chunking_span, {"chunk_count": chunk_count})
         register_stage(
             PipelineStage(
                 name="chunking",
                 title="Chunking",
                 details={
-                    "chunk_count": sum(len(page.chunks) for page in document.pages),
+                    "chunk_count": chunk_count,
                     "pages": [
                         {
                             "page_number": page.page_number,
@@ -161,12 +289,18 @@ class PipelineRunner:
                         for page in document.pages
                     ],
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=chunking_duration,
             )
         )
 
         stage_start = perf_counter()
+        enrichment_span = create_langfuse_span("enrichment")
         document = self.enrichment.enrich(document)
+        enrichment_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(enrichment_span, {
+            "document_summary": document.summary or "",
+            "chunk_count": sum(len(page.chunks) for page in document.pages),
+        })
         register_stage(
             PipelineStage(
                 name="enrichment",
@@ -183,27 +317,89 @@ class PipelineRunner:
                         for chunk in page.chunks
                     ],
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=enrichment_duration,
             )
         )
 
         stage_start = perf_counter()
+        vectorization_span = create_langfuse_span("vectorization")
         document = self.vectorization.vectorize(document)
+        vector_count = sum(len(page.chunks) for page in document.pages)
+        vectorization_duration = (perf_counter() - stage_start) * 1000
+        end_langfuse_span(vectorization_span, {
+            "vector_dimension": self.vectorization.dimension,
+            "vector_count": vector_count,
+        })
         register_stage(
             PipelineStage(
                 name="vectorization",
                 title="Vectorization",
                 details={
                     "vector_dimension": self.vectorization.dimension,
-                    "vector_count": sum(len(page.chunks) for page in document.pages),
+                    "vector_count": vector_count,
                     "sample_vectors": document.metadata.get("vector_samples", []),
                 },
-                duration_ms=(perf_counter() - stage_start) * 1000,
+                duration_ms=vectorization_duration,
             )
         )
+
+        # Update Langfuse trace with final status
+        if langfuse_trace and hasattr(langfuse_trace, 'update'):
+            try:
+                langfuse_trace.update(output={
+                    "final_status": document.status,
+                    "stages": [stage.name for stage in stages],
+                })
+            except Exception:
+                pass
+
+        # Extract trace_id from document metadata if available
+        trace_id = None
+        if document.metadata and "langfuse_trace_id" in document.metadata:
+            trace_id = document.metadata["langfuse_trace_id"]
 
         self.observability.record_event(
             stage="pipeline_complete",
             details={"document_id": document.id, "stages": [stage.name for stage in stages]},
+            trace_id=trace_id,
         )
         return PipelineResult(document=document, stages=stages)
+
+    def _collect_pixmap_previews(self, document: Document) -> list[dict[str, Any]]:
+        """Return Langfuse media previews for the first few pixmaps."""
+        if (
+            not LangfuseMedia
+            or not document.metadata
+            or not document.metadata.get("pixmap_assets")
+            or self.pixmap_preview_limit <= 0
+        ):
+            return []
+        pixmap_assets = document.metadata.get("pixmap_assets", {})
+        previews: list[dict[str, Any]] = []
+        sorted_keys = sorted(
+            pixmap_assets.keys(),
+            key=lambda key: int(str(key)),
+        )
+        for key in sorted_keys:
+            path = Path(pixmap_assets[key])
+            if not path.exists():
+                continue
+            try:
+                with path.open("rb") as handle:
+                    media = LangfuseMedia(
+                        content_bytes=handle.read(),
+                        content_type=mimetypes.guess_type(path.name)[0]
+                        or "image/png",
+                    )
+            except Exception:
+                continue
+            previews.append(
+                {
+                    "page_number": int(str(key)),
+                    "media": media,
+                    "path": str(path),
+                }
+            )
+            if len(previews) >= self.pixmap_preview_limit:
+                break
+        return previews

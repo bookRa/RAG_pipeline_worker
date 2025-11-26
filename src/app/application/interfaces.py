@@ -79,14 +79,30 @@ class SummaryGenerator(Protocol):
 class ObservabilityRecorder(Protocol):
     """Port describing how domain events are emitted."""
 
-    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
-        """Emit a structured event for the given stage."""
+    def record_event(
+        self, 
+        stage: str, 
+        details: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:
+        """Emit a structured event for the given stage.
+        
+        Args:
+            stage: Name of the pipeline stage
+            details: Optional structured details about the event
+            trace_id: Optional trace ID for linking events in observability systems
+        """
 
 
 class NullObservabilityRecorder(ObservabilityRecorder):
     """No-op recorder used by default in tests and as a fallback."""
 
-    def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:  # noqa: D401
+    def record_event(
+        self, 
+        stage: str, 
+        details: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
+    ) -> None:  # noqa: D401
         """No-op implementation that does nothing."""
         return None
 
