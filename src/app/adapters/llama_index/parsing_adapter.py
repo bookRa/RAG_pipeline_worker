@@ -51,7 +51,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         # Combine system and user prompts into a single system message
         # Include document_id and page_number placeholders for the LLM to use
         self._system_prompt = f"{system_prompt}\n\n{user_prompt_template}"
-
+    
     def parse_page(
         self,
         *,

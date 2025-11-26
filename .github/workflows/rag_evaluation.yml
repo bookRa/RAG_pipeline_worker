@@ -1,0 +1,41 @@
+name: RAG Quality Evaluation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - observability
+  workflow_dispatch:
+
+jobs:
+  evaluate-rag-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Ragas evaluation
+        run: |
+          pytest tests/evaluation/test_rag_quality.py -v
+        env:
+          # Set environment variables if needed for evaluation
+          ENABLE_LANGFUSE: false
+      
+      - name: Upload evaluation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-evaluation-results
+          path: tests/evaluation/evaluation_results.json
+          if-no-files-found: ignore
+

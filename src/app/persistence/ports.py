@@ -46,3 +46,28 @@ class DocumentRepository(Protocol):
 
     def list(self) -> list[Document]:
         """Return all documents known to the repository."""
+    
+    def approve_segment(self, document_id: str, segment_id: str) -> bool:
+        """Mark a segment as reviewed/approved.
+        
+        Args:
+            document_id: ID of the document containing the segment
+            segment_id: ID of the segment to approve
+            
+        Returns:
+            True if segment was found and updated, False otherwise
+        """
+        ...
+    
+    def edit_segment(self, document_id: str, segment_id: str, corrected_text: str) -> bool:
+        """Update a segment with corrected text from human reviewer.
+        
+        Args:
+            document_id: ID of the document containing the segment
+            segment_id: ID of the segment to edit
+            corrected_text: The corrected text from the reviewer
+            
+        Returns:
+            True if segment was found and updated, False otherwise
+        """
+        ...

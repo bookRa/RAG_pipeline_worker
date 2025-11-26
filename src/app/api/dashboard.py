@@ -118,3 +118,9 @@ async def dashboard_run_fragment(
             "stage_sequence": list(PipelineRunner.STAGE_SEQUENCE),
         },
     )
+
+
+@router.get("/review", response_class=HTMLResponse)
+async def review_page(request: Request) -> HTMLResponse:
+    """Display the segment review queue page."""
+    return templates.TemplateResponse(request, "review.html", {})

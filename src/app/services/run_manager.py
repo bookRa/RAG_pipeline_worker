@@ -56,7 +56,12 @@ class PipelineRunManager:
 
         def task() -> None:
             try:
-                result = self.runner.run(document, file_bytes=file_bytes, progress_callback=progress_callback)
+                result = self.runner.run(
+                    document,
+                    file_bytes=file_bytes,
+                    progress_callback=progress_callback,
+                    run_id=record.id,
+                )
                 self.repository.complete_run(record.id, result)
                 if self.document_repository:
                     self.document_repository.save(result.document)
@@ -66,7 +71,7 @@ class PipelineRunManager:
         scheduler.schedule(task)
 
     def run_sync(self, document: Document, file_bytes: bytes | None = None) -> PipelineResult:
-        result = self.runner.run(document, file_bytes=file_bytes)
+        result = self.runner.run(document, file_bytes=file_bytes, run_id=document.id)
         if self.document_repository:
             self.document_repository.save(result.document)
         return result
