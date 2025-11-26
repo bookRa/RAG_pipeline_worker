@@ -5,6 +5,7 @@ pydantic-settings
 python-dotenv
 python-multipart
 pytest
+pytest-asyncio
 requests
 httpx
 jinja2
@@ -23,3 +24,9 @@ datasets
 packaging<24
 langfuse>=2.60.10,<3
 pymongo>=4.0.0
+
+sse-starlette>=1.8.0
+
+# Observability and tracing
+langfuse>=2.0.0
+llama-index-callbacks-langfuse>=0.3.0
