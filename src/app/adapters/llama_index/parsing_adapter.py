@@ -147,7 +147,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
     ) -> ParsedPage | None:
         """Parse using OpenAI LLM (GPT-4o-mini) with vision - image-only mode."""
         path_obj = Path(pixmap_path) if pixmap_path else None
-        logger.info(
+        logger.debug(
             "parsing_page_image llm=%s document_id=%s page=%s exists=%s size=%s bytes",
             self._llm.__class__.__name__,
             document_id,
@@ -272,7 +272,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
             use _parse_with_vision_structured() instead.
         """
         path_obj = Path(pixmap_path) if pixmap_path else None
-        logger.info(
+        logger.debug(
             "parsing_page_structured_api llm=%s document_id=%s page=%s exists=%s size=%s bytes",
             self._llm.__class__.__name__,
             document_id,
@@ -321,7 +321,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
                         "page_number": page_number,
                     }
                 )
-                logger.info(
+                logger.debug(
                     "✅ Structured API parsing succeeded for doc=%s page=%s (components: %d)",
                     document_id,
                     page_number,
@@ -446,7 +446,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         Returns:
             tuple[str, str | None, str | None]: (content, error_type, error_details)
         """
-        logger.info(
+        logger.debug(
             "🔄 Starting streaming response for doc=%s page=%s...",
             document_id,
             page_number,
@@ -473,7 +473,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
         consecutive_newlines_limit = self._streaming_max_consecutive_newlines
         
         # Log guardrail configuration for debugging
-        logger.info(
+        logger.debug(
             "🛡️ Guardrails active: max_chars=%d, rep_window=%d, rep_threshold=%.2f, max_consec_newlines=%d",
             max_response_length,
             repetition_window,
@@ -493,7 +493,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 if first_token_time is None:
                     first_token_time = current_time
                     elapsed = first_token_time - start_time
-                    logger.info(
+                    logger.debug(
                         "✓ First token received for doc=%s page=%s (%.1fs)",
                         document_id,
                         page_number,
@@ -618,14 +618,14 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 if current_time - last_log_time >= log_interval_seconds:
                     if content_since_last_log:
                         # Log the chunk in a readable format (full content, no truncation)
-                        logger.info(
+                        logger.debug(
                             "📝 [doc=%s pg=%s | %.1fs]\n%s",
                             document_id,
                             page_number,
                             current_time - start_time,
                             content_since_last_log,
                         )
-                        logger.info(
+                        logger.debug(
                             "📊 Progress: %d chunks, %d chars total",
                             chunk_count,
                             len(accumulated_content),
@@ -635,7 +635,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
             
             # Log any remaining content
             if content_since_last_log:
-                logger.info(
+                logger.debug(
                     "📝 [doc=%s pg=%s | final]\n%s",
                     document_id,
                     page_number,
@@ -655,7 +655,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     total_time,
                 )
             else:
-                logger.info(
+                logger.debug(
                     "✅ Streaming complete for doc=%s page=%s: %d chunks, %d chars in %.1fs (TTFT: %.1fs)",
                     document_id,
                     page_number,
@@ -708,11 +708,11 @@ class ImageAwareParsingAdapter(ParsingLLM):
         """Log parsing trace in human-readable format."""
         from ...parsing.schemas import ParsedTextComponent, ParsedImageComponent, ParsedTableComponent
         
-        logger.info("=" * 80)
-        logger.info("🔍 PARSING TRACE - Document: %s, Page: %s", document_id, page_number)
-        logger.info("=" * 80)
-        logger.info("Pixmap Path: %s", pixmap_path)
-        logger.info("Parsing Status: %s", parsed_page.parsing_status)
+        logger.debug("=" * 80)
+        logger.debug("🔍 PARSING TRACE - Document: %s, Page: %s", document_id, page_number)
+        logger.debug("=" * 80)
+        logger.debug("Pixmap Path: %s", pixmap_path)
+        logger.debug("Parsing Status: %s", parsed_page.parsing_status)
         
         # NEW: Log error details if parsing failed/partial
         if parsed_page.parsing_status != "success":
@@ -722,49 +722,49 @@ class ImageAwareParsingAdapter(ParsingLLM):
             logger.warning("Error Type: %s", parsed_page.error_type)
             logger.warning("Error Details: %s", parsed_page.error_details)
         
-        # NEW: Log page summary if present
+        # Log page summary if present
         if parsed_page.page_summary:
-            logger.info("-" * 80)
-            logger.info("📄 PAGE SUMMARY:")
-            logger.info("-" * 80)
-            logger.info("%s", parsed_page.page_summary)
+            logger.debug("-" * 80)
+            logger.debug("📄 PAGE SUMMARY:")
+            logger.debug("-" * 80)
+            logger.debug("%s", parsed_page.page_summary)
         
-        logger.info("-" * 80)
-        logger.info("RAW TEXT (Markdown):")
-        logger.info("-" * 80)
-        logger.info("%s", parsed_page.raw_text)
-        logger.info("-" * 80)
-        logger.info("COMPONENTS: %d (ordered by layout)", len(parsed_page.components))
+        logger.debug("-" * 80)
+        logger.debug("RAW TEXT (Markdown):")
+        logger.debug("-" * 80)
+        logger.debug("%s", parsed_page.raw_text)
+        logger.debug("-" * 80)
+        logger.debug("COMPONENTS: %d (ordered by layout)", len(parsed_page.components))
         
         # Show all components (no truncation)
         for i, component in enumerate(parsed_page.components, 1):
             if isinstance(component, ParsedTextComponent):
                 text_type_str = f" ({component.text_type})" if component.text_type else ""
-                logger.info("  [%d] TEXT%s - order=%d:\n%s", 
+                logger.debug("  [%d] TEXT%s - order=%d:\n%s", 
                           i, text_type_str, component.order,
                           component.text)
             elif isinstance(component, ParsedImageComponent):
-                logger.info("  [%d] IMAGE - order=%d", i, component.order)
-                logger.info("      description: %s", component.description)
+                logger.debug("  [%d] IMAGE - order=%d", i, component.order)
+                logger.debug("      description: %s", component.description)
                 if component.recognized_text:
-                    logger.info("      recognized_text: %s", component.recognized_text)
+                    logger.debug("      recognized_text: %s", component.recognized_text)
             elif isinstance(component, ParsedTableComponent):
                 caption_str = f" - {component.caption}" if component.caption else ""
-                logger.info("  [%d] TABLE - order=%d%s: %d rows", 
+                logger.debug("  [%d] TABLE - order=%d%s: %d rows", 
                           i, component.order, caption_str, len(component.rows))
-                # NEW: Log table summary if present
+                # Log table summary if present
                 if component.table_summary:
-                    logger.info("      📊 summary: %s", component.table_summary)
+                    logger.debug("      📊 summary: %s", component.table_summary)
                 if component.rows:
                     # Show all column names
                     first_row = component.rows[0]
                     cols = ", ".join(list(first_row.keys()))
-                    logger.info("      columns: %s", cols)
+                    logger.debug("      columns: %s", cols)
         
         # Summary by type
         text_count = len([c for c in parsed_page.components if isinstance(c, ParsedTextComponent)])
         image_count = len([c for c in parsed_page.components if isinstance(c, ParsedImageComponent)])
         table_count = len([c for c in parsed_page.components if isinstance(c, ParsedTableComponent)])
-        logger.info("-" * 80)
-        logger.info("SUMMARY: %d text, %d images, %d tables", text_count, image_count, table_count)
-        logger.info("=" * 80)
+        logger.debug("-" * 80)
+        logger.debug("SUMMARY: %d text, %d images, %d tables", text_count, image_count, table_count)
+        logger.debug("=" * 80)

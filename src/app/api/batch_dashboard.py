@@ -77,3 +77,8 @@ async def batch_details_page(
     )
 
 
+
+
+
+
+
