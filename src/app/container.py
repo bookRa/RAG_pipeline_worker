@@ -36,7 +36,7 @@ from .services.ingestion_service import IngestionService
 from .services.pipeline_runner import PipelineRunner
 from .services.run_manager import PipelineRunManager
 from .services.vector_service import VectorService
-from .vector_store import InMemoryVectorStore
+from .vector_store import DocumentDBVectorStore, InMemoryVectorStore
 
 
 logger = logging.getLogger(__name__)
@@ -175,7 +175,9 @@ class AppContainer:
             summary_generator=self.summary_generator,
             use_llm_summarization=self.settings.use_llm_summarization,  # NEW: LLM-based summarization
         )
-        self.vector_store = InMemoryVectorStore()
+        
+        # Initialize vector store based on configuration
+        self.vector_store = self._create_vector_store()
         self.vector_service = VectorService(
             observability=self.observability,
             latency=stage_latency,
@@ -211,6 +213,40 @@ class AppContainer:
         )
         self.list_documents_use_case = ListDocumentsUseCase(repository=self.document_repository)
         self.get_document_use_case = GetDocumentUseCase(repository=self.document_repository)
+
+    def _create_vector_store(self):
+        """
+        Factory method to create vector store adapter based on configuration.
+        
+        Returns:
+            VectorStoreAdapter instance (InMemoryVectorStore or DocumentDBVectorStore)
+        """
+        driver = self.settings.vector_store.driver
+        
+        if driver == "documentdb":
+            logger.info("Initializing DocumentDB vector store")
+            try:
+                return DocumentDBVectorStore(
+                    uri=self.settings.vector_store.documentdb_uri,
+                    database_name=self.settings.vector_store.documentdb_database,
+                    collection_name=self.settings.vector_store.documentdb_collection,
+                    vector_dimension=self.settings.embeddings.vector_dimension,
+                )
+            except ValueError as exc:
+                logger.error(
+                    "Failed to initialize DocumentDB vector store: %s. Falling back to in-memory store.",
+                    exc,
+                )
+                return InMemoryVectorStore()
+        elif driver == "in_memory":
+            logger.info("Using in-memory vector store")
+            return InMemoryVectorStore()
+        else:
+            logger.warning(
+                "Unknown vector store driver '%s', falling back to in-memory store",
+                driver,
+            )
+            return InMemoryVectorStore()
 
 
 @lru_cache

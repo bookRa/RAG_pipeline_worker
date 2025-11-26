@@ -22,3 +22,4 @@ ragas
 datasets
 packaging<24
 langfuse>=2.60.10,<3
+pymongo>=4.0.0
