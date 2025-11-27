@@ -108,11 +108,10 @@ class ParallelPageProcessor:
                         "filename": document.filename,
                         "error": str(exc),
                     })
-                logger.warning("Failed to generate pixmaps in parallel: %s", exc)
-            except Exception as exc:
                 logger.warning(
                     "Parallel pixmap generation failed, falling back to sequential: %s",
                     exc,
+                    exc_info=True,
                 )
                 # Fall back to sequential parsing
                 return self.parsing.parse(document, file_bytes=file_bytes)
@@ -168,6 +167,7 @@ class ParallelPageProcessor:
                     "Failed to parse page %d: %s",
                     document.pages[i].page_number,
                     result,
+                    exc_info=result,
                 )
                 # Keep original page on error
                 final_pages.append(document.pages[i])
@@ -278,6 +278,7 @@ class ParallelPageProcessor:
                     "Failed to clean page %d: %s",
                     document.pages[i].page_number,
                     result,
+                    exc_info=result,
                 )
                 # Keep original page on error
                 final_pages.append(document.pages[i])

@@ -152,7 +152,12 @@ class BatchUploadUseCase:
             # Log error but don't raise (background task)
             import logging
             logger = logging.getLogger(__name__)
-            logger.error("Batch processing failed: batch_id=%s, error=%s", batch_id, exc)
+            logger.error(
+                "Batch processing failed: batch_id=%s, error=%s", 
+                batch_id, 
+                exc,
+                exc_info=True,
+            )
             
             # Mark batch as failed
             batch = self.batch_repository.get_batch(batch_id)

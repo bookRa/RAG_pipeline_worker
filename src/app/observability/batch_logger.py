@@ -146,13 +146,17 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
         """Start a Langfuse trace for a pipeline run.
         
         Args:
-            name: Trace name (e.g., "batch_document_processing")
+            name: Trace name (e.g., "batch_document_processing" or "document_pipeline::file.pdf")
             input_data: Input data to log
         """
         if not self.langfuse_handler:
             return
         
         try:
+            # Extract file_type and document_id from input_data
+            file_type = input_data.get("file_type")
+            document_id = input_data.get("document_id")
+            
             metadata = {
                 "batch_id": self.batch_id,
                 "document_job_id": self.document_job_id,
@@ -160,12 +164,45 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
                 "thread_id": threading.get_ident(),
             }
             
+            # Build tags consistent with single-file pipeline
+            tags = ["pipeline"]
+            if file_type:
+                tags.append(file_type)
+            if self.batch_id:
+                tags.append("batch")
+                tags.append(self.batch_id[:8])  # Short batch ID for filtering
+            
+            # Set trace parameters on the handler BEFORE creating trace
+            # This ensures LlamaIndex LLM calls use these parameters
+            if hasattr(self.langfuse_handler, "set_trace_params"):
+                try:
+                    self.langfuse_handler.set_trace_params(
+                        name=name,
+                        session_id=self.batch_id or document_id,
+                        metadata=metadata,
+                        tags=tags,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to set trace params: {e}")
+            
+            # Create the trace
             self._trace = self.langfuse_handler.langfuse.trace(
                 name=name,
+                session_id=self.batch_id or document_id,
                 input=input_data,
                 metadata=metadata,
-                tags=["batch", self.batch_id] if self.batch_id else ["single"],
+                tags=tags,
             )
+            
+            # CRITICAL: Set this as the root trace for all subsequent LlamaIndex LLM calls
+            # This ensures all LLM operations (parsing, cleaning, enrichment) are nested
+            # under this document trace instead of creating separate top-level traces
+            if hasattr(self.langfuse_handler, "set_root"):
+                try:
+                    self.langfuse_handler.set_root(self._trace, update_root=False)
+                except Exception as e:
+                    logger.warning(f"Failed to set root trace: {e}")
+                    
         except Exception as e:
             logger.warning(f"Failed to start Langfuse trace: {e}")
 
@@ -189,7 +226,6 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
                 }
             )
             self._current_spans[name] = span
-            span.__enter__()
         except Exception as e:
             logger.warning(f"Failed to start Langfuse span {name}: {e}")
 
@@ -205,9 +241,10 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
         
         try:
             span = self._current_spans[name]
-            span.__exit__(None, None, None)
             if output_data:
                 span.end(output=output_data)
+            else:
+                span.end()
             del self._current_spans[name]
         except Exception as e:
             logger.warning(f"Failed to end Langfuse span {name}: {e}")
@@ -224,6 +261,15 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
         try:
             if output_data:
                 self._trace.update(output=output_data)
+                
+            # Clear the root trace from the handler so subsequent operations
+            # don't accidentally nest under this closed trace
+            if self.langfuse_handler and hasattr(self.langfuse_handler, "set_root"):
+                try:
+                    self.langfuse_handler.set_root(None, update_root=False)
+                except Exception as e:
+                    logger.warning(f"Failed to clear root trace: {e}")
+                    
         except Exception as e:
             logger.warning(f"Failed to end Langfuse trace: {e}")
         finally:

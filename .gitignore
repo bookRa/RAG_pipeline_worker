@@ -8,3 +8,4 @@ artifacts/
 tests/tmp_artifacts/
 tests/source_files/
 .DS_Store
+tmp/*.csv

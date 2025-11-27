@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
+import os
+import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
+
+try:
+    from langfuse.media import LangfuseMedia
+except ImportError:  # pragma: no cover - optional dependency
+    LangfuseMedia = None  # type: ignore[attr-defined]
 
 from ..domain.batch_models import BatchJob, DocumentJob
 from ..domain.models import Document
@@ -17,6 +26,7 @@ from .pipeline_runner import PipelineRunner
 from .run_manager import PipelineRunManager
 
 logger = logging.getLogger(__name__)
+DEFAULT_PIXMAP_PREVIEW_LIMIT = int(os.getenv("LANGFUSE_PIXMAP_PREVIEW_LIMIT", "2"))
 
 
 class BatchPipelineRunner:
@@ -58,6 +68,7 @@ class BatchPipelineRunner:
         self.run_manager = run_manager
         self.max_concurrent = max_concurrent_documents
         self.langfuse_handler = langfuse_handler
+        self.pixmap_preview_limit = max(0, DEFAULT_PIXMAP_PREVIEW_LIMIT)
 
     async def run_batch(
         self,
@@ -141,14 +152,15 @@ class BatchPipelineRunner:
                 langfuse_handler=self.langfuse_handler,
             )
             
-            # Start document-level trace
+            # Start document-level trace (consistent with single-file pipeline)
             doc_logger.start_trace(
-                name="document_pipeline",
+                name=f"document_pipeline::{document.filename}",
                 input_data={
                     "document_id": document.id,
                     "filename": document.filename,
                     "file_type": document.file_type,
                     "size_bytes": document.size_bytes,
+                    "batch_id": batch_id,
                 }
             )
 
@@ -227,11 +239,26 @@ class BatchPipelineRunner:
                     doc_job.mark_stage_completed("parsing")
                     self.batch_repo.update_document_job(batch_id, doc_job)
                     
-                    doc_logger.end_span("parsing", {"pages_parsed": len(document.pages)})
+                    # Collect pixmap previews for Langfuse (consistent with single-file pipeline)
+                    pixmap_previews = self._collect_pixmap_previews(document)
+                    pixmap_metrics = document.metadata.get("pixmap_metrics") if document.metadata else None
+                    
+                    doc_logger.end_span("parsing", {
+                        "pages_parsed": len(document.pages),
+                        "pixmap_metrics": pixmap_metrics or {},
+                        "pixmap_previews": [
+                            {
+                                "page_number": preview["page_number"],
+                                "image": preview["media"],
+                            }
+                            for preview in pixmap_previews
+                        ],
+                    })
                     doc_logger.record_event("parsing", {
                         "document_id": document.id,
                         "filename": document.filename,
                         "page_count": len(document.pages),
+                        "pixmap_count": len(pixmap_previews),
                     })
                     
                     if progress_callback:
@@ -291,11 +318,12 @@ class BatchPipelineRunner:
                     doc_job.mark_stage_completed("chunking")
                     self.batch_repo.update_document_job(batch_id, doc_job)
                     
-                    doc_logger.end_span("chunking", {"chunk_count": len(document.chunks)})
+                    chunk_count = sum(len(page.chunks) for page in document.pages)
+                    doc_logger.end_span("chunking", {"chunk_count": chunk_count})
                     doc_logger.record_event("chunking", {
                         "document_id": document.id,
                         "filename": document.filename,
-                        "chunk_count": len(document.chunks),
+                        "chunk_count": chunk_count,
                     })
                     
                     if progress_callback:
@@ -350,7 +378,11 @@ class BatchPipelineRunner:
                     doc_job.mark_completed()
                     self.batch_repo.update_document_job(batch_id, doc_job)
                     
-                    vector_count = sum(1 for chunk in document.chunks if chunk.embedding is not None)
+                    vector_count = sum(
+                        1 for page in document.pages 
+                        for chunk in page.chunks 
+                        if hasattr(chunk, 'embedding') and chunk.embedding is not None
+                    )
                     doc_logger.end_span("vectorization", {"vector_count": vector_count})
                     doc_logger.record_event("vectorization", {
                         "document_id": document.id,
@@ -369,9 +401,10 @@ class BatchPipelineRunner:
                     duration_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
                     
                     # End document trace
+                    total_chunks = sum(len(page.chunks) for page in document.pages)
                     doc_logger.end_trace({
                         "status": "completed",
-                        "chunk_count": len(document.chunks),
+                        "chunk_count": total_chunks,
                         "duration_ms": duration_ms,
                     })
                     
@@ -385,17 +418,29 @@ class BatchPipelineRunner:
 
                 except Exception as exc:
                     error_msg = str(exc)
+                    stack_trace = traceback.format_exc()
                     
-                    # End trace with error
+                    # Log full error with stack trace
+                    logger.error(
+                        "Document processing failed: document_id=%s, filename=%s, error=%s",
+                        document.id,
+                        document.filename,
+                        error_msg,
+                        exc_info=True,
+                    )
+                    
+                    # End trace with error and full stack trace
                     doc_logger.end_trace({
                         "status": "failed",
                         "error": error_msg,
+                        "traceback": stack_trace,
                     })
                     
                     doc_logger.record_event("pipeline_failed", {
                         "document_id": document.id,
                         "filename": document.filename,
                         "error": error_msg,
+                        "traceback": stack_trace,
                     })
                     
                     doc_job.mark_failed(error_msg)
@@ -440,4 +485,43 @@ class BatchPipelineRunner:
             created_at=datetime.utcnow(),
             status="failed",
         )
+
+    def _collect_pixmap_previews(self, document: Document) -> list[dict[str, Any]]:
+        """Return Langfuse media previews for the first few pixmaps."""
+        if (
+            not LangfuseMedia
+            or not document.metadata
+            or not document.metadata.get("pixmap_assets")
+            or self.pixmap_preview_limit <= 0
+        ):
+            return []
+        pixmap_assets = document.metadata.get("pixmap_assets", {})
+        previews: list[dict[str, Any]] = []
+        sorted_keys = sorted(
+            pixmap_assets.keys(),
+            key=lambda key: int(str(key)),
+        )
+        for key in sorted_keys:
+            path = Path(pixmap_assets[key])
+            if not path.exists():
+                continue
+            try:
+                with path.open("rb") as handle:
+                    media = LangfuseMedia(
+                        content_bytes=handle.read(),
+                        content_type=mimetypes.guess_type(path.name)[0]
+                        or "image/png",
+                    )
+            except Exception:
+                continue
+            previews.append(
+                {
+                    "page_number": int(str(key)),
+                    "media": media,
+                    "path": str(path),
+                }
+            )
+            if len(previews) >= self.pixmap_preview_limit:
+                break
+        return previews
 
