@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+{% block title %}Batch Processing Dashboard{% endblock %}
+
+{% block content %}
+<section style="display:flex;flex-direction:column;gap:20px;width:100%;">
+  <!-- Batch Upload Section -->
+  <div class="panel" style="width:100%;">
+    <div>
+      <h2>Batch Document Upload</h2>
+      <p style="color:#94a3b8;font-size:0.95rem;">
+        Upload multiple documents for parallel processing. Monitor real-time progress for each document.
+      </p>
+    </div>
+    
+    <form
+      id="batch-upload-form"
+      class="form"
+      style="display:flex;flex-direction:column;gap:16px;margin-top:20px;"
+    >
+      <div class="form-group">
+        <label for="files">Documents (select multiple)</label>
+        <input
+          required
+          type="file"
+          id="files"
+          name="files"
+          accept=".pdf,.docx,.ppt,.pptx"
+          multiple
+        />
+        <small style="color:#94a3b8;margin-top:4px;display:block;">
+          Maximum 50 files. Supported formats: PDF, DOCX, PPT, PPTX
+        </small>
+      </div>
+      
+      <div id="file-list-preview" style="display:none;margin-top:8px;">
+        <h4 style="margin:0 0 8px 0;font-size:0.9rem;color:#cbd5e1;">Selected Files:</h4>
+        <ul id="file-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px;">
+        </ul>
+      </div>
+      
+      <div class="form-group">
+        <label for="error_strategy">Error Strategy</label>
+        <select id="error_strategy" name="error_strategy">
+          <option value="continue" selected>Continue on failure (process all documents)</option>
+          <option value="fail_all">Fail all on first error</option>
+        </select>
+      </div>
+      
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button type="submit" class="primary">Upload Batch</button>
+        <span id="upload-indicator" style="display:none;">Processing…</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Batch Progress Section -->
+  <div id="batch-progress-container" style="display:none;">
+    <div class="panel" style="width:100%;">
+      <div class="batch-summary" style="margin-bottom:20px;">
+        <h3 style="margin:0 0 8px 0;">Batch: <span id="batch-id"></span></h3>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+          <div>
+            <span style="color:#94a3b8;">Status:</span>
+            <strong id="batch-status" style="color:#fbbf24;">Queued</strong>
+          </div>
+          <div>
+            <span style="color:#94a3b8;">Progress:</span>
+            <strong id="batch-progress">0%</strong>
+          </div>
+          <div>
+            <span style="color:#94a3b8;">Completed:</span>
+            <strong id="batch-completed">0</strong>/<strong id="batch-total">0</strong>
+          </div>
+          <div>
+            <span style="color:#94a3b8;">Failed:</span>
+            <strong id="batch-failed" style="color:#f87171;">0</strong>
+          </div>
+        </div>
+      </div>
+      
+      <div id="document-progress-list" style="display:flex;flex-direction:column;gap:12px;">
+        <!-- Document progress cards will be inserted here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Batches Section -->
+  {% if recent_batches %}
+  <div class="panel" style="padding:16px 20px;">
+    <div 
+      id="recent-batches-toggle" 
+      style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;"
+      onclick="BatchHistory.toggle()"
+    >
+      <div style="display:flex;align-items:center;gap:12px;">
+        <h3 style="margin:0;font-size:1rem;">Recent Batches ({{ recent_batches|length }})</h3>
+        <span style="font-size:0.85rem;color:#94a3b8;">Click to expand/collapse</span>
+      </div>
+      <span id="recent-batches-arrow" style="font-size:1.2rem;color:#94a3b8;transition:transform 0.2s;">▼</span>
+    </div>
+    <div id="recent-batches-list" style="display:none;margin-top:16px;">
+      <ol style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;">
+        {% for batch in recent_batches %}
+          <li 
+            class="history-card-clickable" 
+            data-batch-id="{{ batch.id }}"
+            onclick="BatchHistory.loadBatch('{{ batch.id }}')"
+            style="cursor:pointer;transition:all 0.2s;padding:12px;background:rgba(255,255,255,0.03);border-radius:6px;"
+          >
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-weight:600;color:#e0f2fe;">{{ batch.total_documents }} documents</div>
+                <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px;">
+                  Status: 
+                  <span style="
+                    color:{% if batch.status == 'completed' %}#34d399{% elif batch.status == 'failed' %}#f87171{% elif batch.status == 'partial' %}#fbbf24{% else %}#94a3b8{% endif %};
+                  ">{{ batch.status }}</span>
+                  · Completed: {{ batch.completed_documents }}/{{ batch.total_documents }}
+                  · Failed: {{ batch.failed_documents }}
+                </div>
+              </div>
+              <div style="font-size:0.75rem;color:#64748b;">{{ batch.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<script>
+// Batch Dashboard JavaScript
+const BatchDashboard = {
+  currentBatchId: null,
+  eventSource: null,
+  
+  init() {
+    const form = document.getElementById('batch-upload-form');
+    const filesInput = document.getElementById('files');
+    
+    filesInput.addEventListener('change', this.handleFileSelection.bind(this));
+    form.addEventListener('submit', this.handleSubmit.bind(this));
+  },
+  
+  handleFileSelection(event) {
+    const files = event.target.files;
+    const fileList = document.getElementById('file-list');
+    const fileListPreview = document.getElementById('file-list-preview');
+    
+    if (files.length === 0) {
+      fileListPreview.style.display = 'none';
+      return;
+    }
+    
+    fileListPreview.style.display = 'block';
+    fileList.innerHTML = '';
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const li = document.createElement('li');
+      li.style.cssText = 'padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:4px;font-size:0.85rem;';
+      li.textContent = `${file.name} (${this.formatFileSize(file.size)})`;
+      fileList.appendChild(li);
+    }
+  },
+  
+  formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  },
+  
+  async handleSubmit(event) {
+    event.preventDefault();
+    
+    const form = event.target;
+    const filesInput = document.getElementById('files');
+    const errorStrategy = document.getElementById('error_strategy').value;
+    const indicator = document.getElementById('upload-indicator');
+    
+    if (filesInput.files.length === 0) {
+      alert('Please select at least one file');
+      return;
+    }
+    
+    indicator.style.display = 'inline';
+    
+    const formData = new FormData();
+    for (let i = 0; i < filesInput.files.length; i++) {
+      formData.append('files', filesInput.files[i]);
+    }
+    
+    try {
+      const response = await fetch(`/batch/upload?error_strategy=${errorStrategy}`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Upload failed');
+      }
+      
+      const result = await response.json();
+      this.currentBatchId = result.batch_id;
+      
+      // Show progress container
+      document.getElementById('batch-progress-container').style.display = 'block';
+      document.getElementById('batch-id').textContent = result.batch_id;
+      document.getElementById('batch-total').textContent = result.total_documents;
+      
+      // Initialize progress tracking
+      this.initProgressTracking(result.batch_id, result.total_documents);
+      
+      // Start SSE stream
+      this.startSSEStream(result.batch_id);
+      
+    } catch (error) {
+      alert('Error: ' + error.message);
+    } finally {
+      indicator.style.display = 'none';
+    }
+  },
+  
+  initProgressTracking(batchId, totalDocuments) {
+    const container = document.getElementById('document-progress-list');
+    container.innerHTML = '';
+    
+    // We'll add document cards as we receive events
+  },
+  
+  startSSEStream(batchId) {
+    if (this.eventSource) {
+      this.eventSource.close();
+    }
+    
+    this.eventSource = new EventSource(`/batch/${batchId}/stream`);
+    
+    this.eventSource.addEventListener('batch_started', (e) => {
+      console.log('Batch started:', e.data);
+    });
+    
+    this.eventSource.addEventListener('document_stage_update', (e) => {
+      const data = JSON.parse(e.data);
+      this.updateDocumentProgress(data);
+    });
+    
+    this.eventSource.addEventListener('document_completed', (e) => {
+      const data = JSON.parse(e.data);
+      this.markDocumentCompleted(data.document_id);
+      this.updateBatchSummary();
+    });
+    
+    this.eventSource.addEventListener('document_failed', (e) => {
+      const data = JSON.parse(e.data);
+      this.markDocumentFailed(data.document_id, data.error);
+      this.updateBatchSummary();
+    });
+    
+    this.eventSource.addEventListener('batch_completed', (e) => {
+      const data = JSON.parse(e.data);
+      this.markBatchCompleted(data);
+      this.eventSource.close();
+    });
+    
+    this.eventSource.addEventListener('batch_update', (e) => {
+      const data = JSON.parse(e.data);
+      document.getElementById('batch-progress').textContent = data.progress_percentage.toFixed(0) + '%';
+    });
+    
+    this.eventSource.onerror = (e) => {
+      console.error('SSE error:', e);
+      this.eventSource.close();
+    };
+  },
+  
+  updateDocumentProgress(data) {
+    let card = document.getElementById(`doc-${data.document_id}`);
+    
+    if (!card) {
+      // Create new card
+      card = this.createDocumentCard(data.document_id, data.filename);
+      document.getElementById('document-progress-list').appendChild(card);
+    }
+    
+    // Update stage indicators
+    const stages = ['ingestion', 'parsing', 'cleaning', 'chunking', 'enrichment', 'vectorization'];
+    stages.forEach((stage, index) => {
+      const indicator = card.querySelector(`.stage-${stage}`);
+      if (indicator) {
+        if (data.completed_stages.includes(stage)) {
+          indicator.className = `stage stage-${stage} completed`;
+        } else if (stage === data.stage) {
+          indicator.className = `stage stage-${stage} in-progress`;
+        } else {
+          indicator.className = `stage stage-${stage} pending`;
+        }
+      }
+    });
+    
+    // Update progress bar
+    const progressBar = card.querySelector('.doc-progress');
+    const completedStages = data.completed_stages.length;
+    progressBar.value = completedStages;
+  },
+  
+  createDocumentCard(docId, filename) {
+    const card = document.createElement('div');
+    card.id = `doc-${docId}`;
+    card.className = 'doc-progress-card';
+    card.style.cssText = 'padding:16px;background:rgba(255,255,255,0.03);border-radius:8px;';
+    
+    card.innerHTML = `
+      <h4 style="margin:0 0 12px 0;font-size:0.9rem;">${filename}</h4>
+      <div class="stage-indicators" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <span class="stage stage-ingestion pending">Ingestion</span>
+        <span class="stage stage-parsing pending">Parsing</span>
+        <span class="stage stage-cleaning pending">Cleaning</span>
+        <span class="stage stage-chunking pending">Chunking</span>
+        <span class="stage stage-enrichment pending">Enrichment</span>
+        <span class="stage stage-vectorization pending">Vectorization</span>
+      </div>
+      <progress class="doc-progress" value="0" max="6" style="width:100%;height:8px;"></progress>
+    `;
+    
+    return card;
+  },
+  
+  markDocumentCompleted(docId) {
+    const card = document.getElementById(`doc-${docId}`);
+    if (card) {
+      card.style.borderLeft = '4px solid #34d399';
+    }
+  },
+  
+  markDocumentFailed(docId, error) {
+    const card = document.getElementById(`doc-${docId}`);
+    if (card) {
+      card.style.borderLeft = '4px solid #f87171';
+      const errorMsg = document.createElement('div');
+      errorMsg.style.cssText = 'margin-top:8px;padding:8px;background:rgba(248,113,113,0.1);border-radius:4px;font-size:0.8rem;color:#fca5a5;';
+      errorMsg.textContent = 'Error: ' + error;
+      card.appendChild(errorMsg);
+    }
+  },
+  
+  markBatchCompleted(data) {
+    document.getElementById('batch-status').textContent = data.status;
+    document.getElementById('batch-status').style.color = data.status === 'completed' ? '#34d399' : (data.status === 'failed' ? '#f87171' : '#fbbf24');
+  },
+  
+  updateBatchSummary() {
+    // Refetch batch details
+    if (!this.currentBatchId) return;
+    
+    fetch(`/batch/${this.currentBatchId}`)
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('batch-completed').textContent = data.completed_documents;
+        document.getElementById('batch-failed').textContent = data.failed_documents;
+        document.getElementById('batch-progress').textContent = data.progress_percentage.toFixed(0) + '%';
+      });
+  },
+};
+
+const BatchHistory = {
+  toggle() {
+    const list = document.getElementById('recent-batches-list');
+    const arrow = document.getElementById('recent-batches-arrow');
+    if (list.style.display === 'none') {
+      list.style.display = 'block';
+      arrow.style.transform = 'rotate(180deg)';
+    } else {
+      list.style.display = 'none';
+      arrow.style.transform = 'rotate(0deg)';
+    }
+  },
+  
+  loadBatch(batchId) {
+    window.location.href = `/batch-dashboard/batches/${batchId}`;
+  },
+};
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+  BatchDashboard.init();
+});
+
+// Stage indicator styles
+const style = document.createElement('style');
+style.textContent = `
+  .stage {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  .stage.pending {
+    background: rgba(148, 163, 184, 0.1);
+    color: #94a3b8;
+  }
+  .stage.in-progress {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .stage.completed {
+    background: rgba(52, 211, 153, 0.2);
+    color: #34d399;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}
+
+
+
+
+
+
+

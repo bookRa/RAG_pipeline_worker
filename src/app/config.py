@@ -99,6 +99,27 @@ class PromptSettings(BaseModel):
     summary_prompt_path: Path = Path("docs/prompts/summarization/system.md")
 
 
+class BatchProcessingSettings(BaseModel):
+    """Configuration for batch and parallel processing."""
+
+    max_concurrent_documents: int = 5
+    max_workers_per_document: int = 4
+    enable_page_parallelism: bool = True
+    enable_document_parallelism: bool = True
+    rate_limit_requests_per_minute: int = 60
+    batch_artifacts_dir: Path = Path("artifacts/batches")
+    pixmap_parallel_workers: int | None = None  # Defaults to CPU count
+
+
+class LangfuseSettings(BaseModel):
+    """Configuration for Langfuse observability and tracing."""
+
+    enabled: bool = False
+    public_key: str = ""
+    secret_key: str = ""
+    host: str = "https://cloud.langfuse.com"
+
+
 class Settings(BaseSettings):
     """Global application configuration."""
 
@@ -108,10 +129,18 @@ class Settings(BaseSettings):
     chunking: ChunkingSettings = ChunkingSettings()
     vector_store: VectorStoreSettings = VectorStoreSettings()
     prompts: PromptSettings = PromptSettings()
+    batch: BatchProcessingSettings = BatchProcessingSettings()
+    langfuse: LangfuseSettings = LangfuseSettings()
     
     # NEW: Pipeline improvement settings
     use_vision_cleaning: bool = False  # Enable vision-based cleaning (requires vision-capable LLM)
     use_llm_summarization: bool = True  # Enable LLM-based document/chunk summarization
+    
+    # Langfuse observability settings
+    enable_langfuse: bool = Field(default=False)
+    langfuse_public_key: str = Field(default="")
+    langfuse_secret_key: str = Field(default="", repr=False)
+    langfuse_host: str = Field(default="https://cloud.langfuse.com")
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),

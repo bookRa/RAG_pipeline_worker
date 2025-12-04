@@ -2,6 +2,13 @@
 
 A cheat sheet for understanding data flow, storage locations, and key concepts in the RAG pipeline.
 
+## Processing Modes
+
+The pipeline supports two processing modes:
+
+**Single Document Mode**: Sequential processing through all stages with real-time progress tracking  
+**Batch Processing Mode**: Concurrent processing of multiple documents with multi-level parallelism
+
 ---
 
 ## Visual Overview: LLM-Powered Data Flow
@@ -148,6 +155,8 @@ Note: Embeds contextualized_text for better retrieval, preserves cleaned_text fo
 
 ## Storage Locations
 
+### Single Document Processing
+
 | Path | Contains | When Created |
 |------|----------|--------------|
 | `artifacts/ingestion/<doc_id>/<timestamp>_<filename>` | Raw file bytes | Ingestion stage |
@@ -159,7 +168,14 @@ Note: Embeds contextualized_text for better retrieval, preserves cleaned_text fo
 | `artifacts/runs/<run_id>/stages/cleaning.json` | Cleaning stage output details | After cleaning |
 | `artifacts/runs/<run_id>/stages/vectorization.json` | Sample vectors only | After vectorization |
 
-**Key Insight**: `artifacts/documents/<doc_id>.json` and `artifacts/runs/<run_id>/document.json` contain the **same document data**. The runs directory adds execution context.
+### Batch Processing
+
+| Path | Contains | When Created |
+|------|----------|--------------|
+| `artifacts/batches/<batch_id>/batch.json` | Batch metadata (status, progress, document count) | Batch creation |
+| `artifacts/batches/<batch_id>/documents/<doc_id>.json` | Individual document job status and progress | Per document |
+
+**Key Insight**: `artifacts/documents/<doc_id>.json` and `artifacts/runs/<run_id>/document.json` contain the **same document data**. The runs directory adds execution context. Batch processing creates additional tracking artifacts under `artifacts/batches/`.
 
 ---
 
@@ -380,6 +396,50 @@ Propeller Specifications:
 - `chunk.contextualized_text`: Used for embedding (retrieval)
 - `chunk.cleaned_text`: Used for generation (avoid hallucinated context)
 - Both preserved in `document.json`
+
+---
+
+## Batch Processing Features
+
+### Multi-Level Parallelism
+
+**Document-Level**: Process up to 5 documents concurrently (configurable)
+**Page-Level**: Within each document, parse and clean pages in parallel
+**Pixmap-Level**: Render PDF pages in parallel using process pools (3-5x speedup)
+
+### Configuration
+
+```bash
+BATCH__MAX_CONCURRENT_DOCUMENTS=5      # Max documents in parallel
+BATCH__MAX_WORKERS_PER_DOCUMENT=4      # Max workers per document
+BATCH__ENABLE_PAGE_PARALLELISM=true    # Enable page parallelism
+BATCH__RATE_LIMIT_REQUESTS_PER_MINUTE=60  # API rate limiting
+```
+
+### Batch API Endpoints
+
+- `POST /batch/upload` - Upload multiple files (up to 50)
+- `GET /batch/{batch_id}` - Get batch status with per-document progress
+- `GET /batch/{batch_id}/stream` - Real-time SSE progress updates
+- `GET /batch/` - List recent batches
+- `GET /batch-dashboard/` - Interactive batch monitoring UI
+
+### Batch Observability
+
+Clean, minimal logging with Langfuse integration:
+```
+12:34:56.789 | [PIXMAP_PAGE_COMPLETE] batch=8fbc27f6 doc=test.pdf page=1/10
+12:35:00.234 | [PARSING] batch=8fbc27f6 doc=test.pdf 10 pages
+12:35:05.678 | [CLEANING] batch=8fbc27f6 doc=test.pdf 10 pages
+12:35:15.789 | [PIPELINE_COMPLETE] batch=8fbc27f6 doc=test.pdf ⏱ 18789ms
+```
+
+Enable Langfuse tracing:
+```bash
+LANGFUSE__ENABLED=true
+LANGFUSE__PUBLIC_KEY=pk-lf-...
+LANGFUSE__SECRET_KEY=sk-lf-...
+```
 
 ---
 

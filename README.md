@@ -17,7 +17,16 @@ The pipeline executes the following stages in order. Each service returns a new 
 | Enrichment | `EnrichmentService` | `enriched` | Uses `LlamaIndexSummaryAdapter` to generate document-level summary from page summaries, then creates contextualized text for each chunk following Anthropic's contextual retrieval pattern |
 | Vectorization | `VectorService` | `vectorized` | Embeds `contextualized_text` (not raw text) via `LlamaIndexEmbeddingAdapter`, preserving both context-enriched and original text for retrieval and generation |
 
-`PipelineRunner` coordinates these services, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
+### Processing Modes
+
+**Single Document Mode**: `PipelineRunner` coordinates these services sequentially, records per-stage duration/details, and `PipelineRunManager` persists progress snapshots so the dashboard can stream updates while a run is executing asynchronously.
+
+**Batch Processing Mode**: `BatchPipelineRunner` processes multiple documents concurrently with:
+- **Document-level parallelism**: Process multiple documents simultaneously (configurable concurrency)
+- **Page-level parallelism**: Within each document, pages are processed in parallel for parsing and cleaning stages
+- **Pixmap parallelism**: PDF page rendering uses process pools (3-5x speedup)
+- **Rate limiting**: Token bucket algorithm prevents API throttling
+- **Progress tracking**: Real-time updates via Server-Sent Events (SSE)
 
 ### Visual Pipeline Flow
 
@@ -140,9 +149,14 @@ RAG_pipeline_worker/
 
 ## FastAPI Surface
 
+### Single Document Endpoints
+
 - `POST /upload` – Accepts a single file and processes it synchronously by calling `UploadDocumentUseCase`. Returns the final `Document` with pages, chunks, metadata, and vectors.
 - `GET /documents` – Lists all stored documents via `ListDocumentsUseCase`.
 - `GET /documents/{doc_id}` – Fetches a single processed document.
+- `GET /documents/{document_id}/segments-for-review` – Surfaces every segment flagged by the cleaning LLM (`needs_review=true`) along with rationale, page number, and chunk metadata for HITL workflows.
+- `POST /segments/{segment_id}/approve` – Marks a flagged segment as reviewed/approved and records the review action inside `review_history`.
+- `PUT /segments/{segment_id}/edit` – Stores human corrections for a flagged segment while keeping the original text for auditing/fine-tuning.
 - `GET /dashboard` – Renders the manual test harness with real-time pipeline monitoring:
   - Upload documents and track processing through all stages
   - Background execution via `PipelineRunManager.run_async` with live polling
@@ -150,8 +164,21 @@ RAG_pipeline_worker/
   - Inspect chunk metadata including component type and contextualized text
   - Track stage durations and component-aware chunking statistics
   - Preview document files served from `static/uploads/`
+- `GET /dashboard/review` – Human-in-the-loop queue that consumes the APIs above so reviewers can approve or edit segments inline and watch the queue drain in real time.
 
-The dashboard uses only server-side templates (Jinja2) plus vanilla JS for auto-refreshing. No frontend build tooling required.
+### Batch Processing Endpoints
+
+- `POST /batch/upload` – Upload multiple files (up to 50) for concurrent processing
+- `GET /batch/{batch_id}` – Get batch status with per-document progress
+- `GET /batch/{batch_id}/stream` – Server-Sent Events (SSE) endpoint for real-time progress updates
+- `GET /batch/` – List recent batches with completion statistics
+- `GET /batch-dashboard/` – Interactive batch upload and monitoring UI with:
+  - Multiple file upload with preview
+  - Real-time progress via SSE (per-document and per-stage)
+  - Batch-level statistics (completed/failed counts)
+  - Recent batch history
+
+The dashboards use only server-side templates (Jinja2) plus vanilla JS for auto-refreshing and SSE. No frontend build tooling required.
 
 ---
 
@@ -182,7 +209,7 @@ LLM__MODEL=gpt-4o-mini
 LLM__USE_STRUCTURED_OUTPUTS=true  # Use native JSON mode for reliability
 LLM__USE_STREAMING=false          # Disable for structured outputs
 
-# Chunking Strategy (NEW in llama-index branch)
+# Chunking Strategy
 CHUNKING__STRATEGY=component           # "component", "hybrid", or "fixed"
 CHUNKING__COMPONENT_MERGE_THRESHOLD=100  # Min tokens to merge small components
 CHUNKING__MAX_COMPONENT_TOKENS=500      # Max tokens before splitting large components
@@ -193,6 +220,19 @@ CHUNKING__CHUNK_OVERLAP=50
 USE_VISION_CLEANING=false    # Enable vision-based cleaning (optional)
 USE_LLM_SUMMARIZATION=true   # Use LLM for summaries (vs truncation)
 CHUNKING__INCLUDE_IMAGES=true  # Generate 300 DPI pixmaps for parsing
+
+# Batch Processing
+BATCH__MAX_CONCURRENT_DOCUMENTS=5      # Max documents to process in parallel
+BATCH__MAX_WORKERS_PER_DOCUMENT=4      # Max workers per document
+BATCH__ENABLE_PAGE_PARALLELISM=true    # Parallel page processing
+BATCH__RATE_LIMIT_REQUESTS_PER_MINUTE=60  # API rate limit
+BATCH__PIXMAP_PARALLEL_WORKERS=4       # CPU cores for pixmap rendering
+
+# Observability
+LANGFUSE__ENABLED=false                # Enable Langfuse tracing
+LANGFUSE__PUBLIC_KEY=pk-lf-...         # Langfuse public key
+LANGFUSE__SECRET_KEY=sk-lf-...         # Langfuse secret key
+LANGFUSE__HOST=https://cloud.langfuse.com  # Langfuse instance URL
 
 # Vector Store
 VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
@@ -223,6 +263,25 @@ echo "LLM__MODEL=gpt-4o-mini" >> .env
 In hosted environments (Render, AWS, etc.) define the same variables through your platform's secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
 
 **Using BCAI (Boeing Conversational AI)?** See **[docs/BCAI_Setup.md](docs/BCAI_Setup.md)** for configuration and run `python tests/bcai_diagnostics.py` to verify your setup.
+
+### Langfuse Tracing
+
+Langfuse instrumentation (Phase B) is wired into `src/app/container.py` and `PipelineRunner`. When enabled, each pipeline run emits a root trace named `document_processing_pipeline` plus child spans for ingestion, parsing, cleaning, chunking, enrichment, and vectorization. Stage metadata (chunk counts, cleaning profiles, summaries, etc.) is attached to every span, and the final trace ID flows back through the logging adapter so you can correlate console logs with Langfuse.
+
+1. Install dependencies (already in `requirements.txt`): `langfuse` and `llama-index-callbacks-langfuse`.
+2. Add the following to `.env` (or export them before starting the API):
+
+   ```bash
+   ENABLE_LANGFUSE=true
+   LANGFUSE_PUBLIC_KEY=pk-your-key
+   LANGFUSE_SECRET_KEY=sk-your-key
+   LANGFUSE_HOST=https://cloud.langfuse.com  # or your self-hosted URL
+   ```
+
+3. Start the app (`uvicorn src.app.main:app --reload`) and upload a document via `/dashboard` or `POST /upload`.
+4. Open the Langfuse UI → Traces to confirm the run hierarchy. Each span should include timing plus structured metadata such as chunk counts, pixmap metrics, and cleaning profiles.
+
+Set `ENABLE_LANGFUSE=false` (default) to fall back to structured logging without Langfuse dependencies.
 
 ---
 
@@ -290,13 +349,44 @@ PIPELINE_STAGE_LATENCY=0.05 uvicorn src.app.main:app --reload
 ### Run the Tests
 
 ```bash
-pytest              # full suite
-pytest tests/test_architecture.py  # enforce hexagonal import rules
+pytest              # Fast unit tests (default, uses mocks, completes in seconds)
+pytest tests/test_architecture.py  # Enforce hexagonal import rules
 ```
 
-- `tests/test_services.py` covers every pipeline stage plus immutability guarantees.
-- `tests/test_dashboard.py` exercises the background-run workflow.
-- `tests/test_pdf_parser.py` asserts that `pdfplumber` parsing works and errors are handled gracefully.
+**By default, all tests use mock LLM providers and complete in seconds.** No API keys required.
+
+#### Test Categories
+
+- **Unit Tests** (default): Fast tests using mocks - `pytest` runs these automatically
+- **Contract Tests**: Live API integration tests - `RUN_CONTRACT_TESTS=1 pytest -m contract`
+- **RAG Quality Tests**: Ragas evaluation tests - `RUN_RAG_TESTS=1 pytest tests/evaluation/`
+
+#### Quick Reference
+
+```bash
+# Fast unit tests only (default)
+pytest
+
+# Skip slow tests
+pytest -m "not slow"
+
+# Run contract tests (requires API keys)
+RUN_CONTRACT_TESTS=1 pytest -m contract
+
+# Run RAG quality tests (requires API keys)
+RUN_RAG_TESTS=1 pytest tests/evaluation/
+
+# Run specific test file
+pytest tests/test_services.py
+```
+
+**📖 For detailed testing documentation, see [TESTING.md](docs/TESTING.md)**
+
+Key test files:
+- `tests/test_services.py` - Pipeline stage services and immutability guarantees
+- `tests/test_dashboard.py` - Dashboard workflow and background runs
+- `tests/test_pdf_parser.py` - PDF parsing adapter tests
+- `tests/test_architecture.py` - Hexagonal architecture compliance
 
 ---
 
@@ -316,11 +406,15 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 - [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
 - **[BCAI Setup](docs/BCAI_Setup.md)** - Configure Boeing Conversational AI integration
+- [Testing Guide](docs/TESTING.md) - **NEW!** Comprehensive test suite documentation and running instructions
 
 ### Deep Dives
-- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - **NEW!** Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
 - [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
 - [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
+- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
+- [Batch Processing](docs/Batch_Processing_Implementation_Summary.md) - Comprehensive guide to batch processing with parallelism, rate limiting, and observability
+- [Batch Observability Quick Start](docs/Batch_Observability_Quick_Start.md) - Get started with clean logging and Langfuse tracing for batch operations
 
 ### Implementation Records
 - [Pipeline Improvements Status](docs/Pipeline_Improvements_Implementation_Status.md) - Component-aware chunking and contextual retrieval implementation
@@ -328,6 +422,9 @@ pytest tests/test_architecture.py  # enforce hexagonal import rules
 
 ### Next Steps
 - [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
+- [Langfuse Usage Guide](docs/Langfuse_User_Guide.md) - How we instrument traces and inspect runs in the Langfuse UI
+- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration roadmap
+- [DocumentDB Integration](docs/DocumentDB_Integration_Summary.md) - Vector store persistence with AWS DocumentDB
 
 ### Prompts & Research
 - [Prompts Guide](docs/prompts/README.md) - How to tune LLM behavior across pipeline stages

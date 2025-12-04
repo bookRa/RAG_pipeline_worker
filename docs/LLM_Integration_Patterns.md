@@ -25,7 +25,7 @@ The RAG pipeline uses LLMs at multiple stages to transform raw documents into se
 - **Cleaning Stage**: LLM normalizes content and flags segments for human review (optionally with vision for layout-aware cleaning)
 - **Enrichment Stage**: LLM generates summaries at document and chunk levels
 
-**Important**: All stages use the same LLM (GPT-4o-mini by default, configurable via `LLM__MODEL`). The model handles reasoning, image processing, and structured outputs through a unified interface.
+All stages use the same LLM (GPT-4o-mini by default, configurable via `LLM__MODEL`). The model handles reasoning, image processing, and structured outputs through a unified interface.
 
 All LLM integrations follow hexagonal architecture principles, isolating LLM concerns to the adapter layer while keeping business logic clean and testable.
 
@@ -153,7 +153,7 @@ graph TB
 | **Enrichment (Chunk)** | Chunk text + context | GPT-4o-mini | 2-sentence chunk summary | Explains chunk content in relation to document |
 | **Vectorization** | Contextualized text | text-embedding-3-large | 768-dim vector | Enables semantic search with hierarchical context |
 
-**Note**: All LLM stages use the same model (GPT-4o-mini by default). The model handles vision, text processing, and structured outputs through a unified interface.
+All LLM stages use the same model (GPT-4o-mini by default). The model handles vision, text processing, and structured outputs through a unified interface.
 
 ---
 
@@ -201,7 +201,7 @@ class ImageAwareParsingAdapter:
 - Headers/footers can be identified by position
 - Multi-column layouts are understood correctly
 
-**Note**: The same LLM (GPT-4o-mini) handles vision through `ChatMessage` with `ImageBlock` content, not a separate "vision model".
+The same LLM (GPT-4o-mini) handles vision through `ChatMessage` with `ImageBlock` content, not a separate "vision model".
 
 **Prompt**: See `docs/prompts/parsing/` for system and user prompts.
 
@@ -434,7 +434,7 @@ parsed_page = response.raw  # Already validated!
 | Parsing | `ParsedPage` | `src/app/parsing/schemas.py` |
 | Cleaning | `CleanedPage` | `src/app/parsing/schemas.py` |
 
-**Note**: Summarization does **not** use structured outputs because the response is plain text (no JSON).
+Summarization does not use structured outputs because the response is plain text (no JSON).
 
 ### Benefits
 
@@ -559,7 +559,7 @@ def test_parsing_with_real_llm():
     assert parsed_page.page_summary
 ```
 
-**Best Practice**: Run integration tests in CI only if `OPENAI_API_KEY` is set, otherwise skip.
+Run integration tests in CI only if `OPENAI_API_KEY` is set, otherwise skip.
 
 ### Contract Tests
 
