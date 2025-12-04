@@ -204,7 +204,7 @@ The dashboard stores uploaded files under `static/uploads/` for inline previews.
 
 ```bash
 # LLM Settings
-LLM__PROVIDER=openai
+LLM__PROVIDER=openai  # Options: openai, bcai, mock
 LLM__MODEL=gpt-4o-mini
 LLM__USE_STRUCTURED_OUTPUTS=true  # Use native JSON mode for reliability
 LLM__USE_STREAMING=false          # Disable for structured outputs
@@ -260,7 +260,9 @@ echo "LLM__MODEL=gpt-4o-mini" >> .env
 >
 > **401 missing API key?** Make sure either `LLM__API_KEY` or `OPENAI_API_KEY` is set in the environment. The code first checks `LLM__API_KEY` and falls back to `OPENAI_API_KEY`; if both are blank the OpenAI SDK will reject requests with a 401.
 
-In hosted environments (Render, AWS, etc.) define the same variables through your platform’s secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
+In hosted environments (Render, AWS, etc.) define the same variables through your platform's secrets manager (`OPENAI_API_KEY`, `LLM__PROVIDER`, `LLM__MODEL`, etc.). The application reads everything from environment variables, so no code changes are required to swap providers or models.
+
+**Using BCAI (Boeing Conversational AI)?** See **[docs/BCAI_Setup.md](docs/BCAI_Setup.md)** for configuration and run `python tests/bcai_diagnostics.py` to verify your setup.
 
 ### Langfuse Tracing
 
@@ -403,6 +405,7 @@ Key test files:
 - [README](README.md) - Start here for setup and overview (you are here)
 - [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
 - [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
+- **[BCAI Setup](docs/BCAI_Setup.md)** - Configure Boeing Conversational AI integration
 - [Testing Guide](docs/TESTING.md) - **NEW!** Comprehensive test suite documentation and running instructions
 
 ### Deep Dives

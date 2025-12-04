@@ -16,7 +16,7 @@ load_dotenv(ENV_PATH, override=False)
 class LLMSettings(BaseModel):
     """Configuration for the primary LLM provider."""
 
-    provider: Literal["openai", "internal", "mock"] = "openai"
+    provider: Literal["openai", "bcai", "internal", "mock"] = "openai"
     model: str = "gpt-4o-mini"
     temperature: float = 0.1
     max_output_tokens: int = 256
@@ -33,17 +33,28 @@ class LLMSettings(BaseModel):
     streaming_repetition_window: int = 200  # Check last N chars for repetition
     streaming_repetition_threshold: float = 0.8  # Stop if >X% same character
     streaming_max_consecutive_newlines: int = 100  # Stop if N+ consecutive \n
+    
+    # BCAI-specific settings (optional, only used when provider="bcai")
+    conversation_mode: str = "non-rag"  # BCAI conversation mode ("non-rag" or a RAG name)
+    conversation_source: str = "rag-pipeline-worker"  # System identifier for BCAI tracking
 
 
 class EmbeddingSettings(BaseModel):
     """Configuration for embedding/vector generation."""
 
-    provider: Literal["openai", "internal", "mock"] = "openai"
+    provider: Literal["openai", "bcai", "internal", "mock"] = "openai"
     model: str = "text-embedding-3-small"
     batch_size: int = 32
     vector_dimension: int = 1536
     store_target: Literal["in_memory", "llama_index_local", "documentdb"] = "llama_index_local"
     cache_enabled: bool = True
+    
+    # Optional API credentials (can inherit from LLM settings for BCAI)
+    api_key: str | None = Field(default=None, repr=False)
+    api_base: str | None = None
+    
+    # BCAI-specific: Optional dimensions override (for text-embedding-3 models)
+    dimensions: int | None = None
 
 
 class ChunkingSettings(BaseModel):
