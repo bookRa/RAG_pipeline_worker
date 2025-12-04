@@ -228,7 +228,7 @@ def check_authentication(api_base: str, api_key: str) -> bool:
             url,
             headers=headers,
             json=payload,
-            timeout=30,
+            timeout=300,
         )
         
         print_info(f"Response status: {response.status_code}")
