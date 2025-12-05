@@ -594,7 +594,14 @@ parsed_page = response.raw  # Already a validated ParsedPage instance!
 - No manual JSON parsing or error-prone prompt engineering
 - Provider-agnostic (works with OpenAI, Anthropic, etc.)
 
-**Trade-off:** Streaming is incompatible with structured outputs. The pipeline defaults to structured outputs for reliability; set `LLM__USE_STREAMING=true` for observability during development.
+**Trade-off:** Streaming and native structured outputs use different mechanisms:
+
+| Setting | Mechanism | Reliability | Observability |
+|---------|-----------|-------------|---------------|
+| `USE_STREAMING=false` | Native JSON mode via `as_structured_llm()` | Highest | No progress logs |
+| `USE_STREAMING=true` | Manual schema injection + parsing | Medium | Progress logs every 5s |
+
+Both settings support `USE_STRUCTURED_OUTPUTS=true`, but they achieve it differently. For production/BCAI, use `USE_STREAMING=false` for maximum reliability. For development, use `USE_STREAMING=true` to see progress logs and debug LLM behavior.
 
 ### Adapter Isolation
 

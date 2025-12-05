@@ -14,7 +14,36 @@ load_dotenv(ENV_PATH, override=False)
 
 
 class LLMSettings(BaseModel):
-    """Configuration for the primary LLM provider."""
+    """Configuration for the primary LLM provider.
+    
+    STREAMING vs STRUCTURED OUTPUTS - Understanding the Tradeoffs:
+    
+    The pipeline supports two parsing modes that affect reliability and observability:
+    
+    1. NON-STREAMING + STRUCTURED (use_streaming=False, use_structured_outputs=True)
+       - Uses LlamaIndex's as_structured_llm() with native JSON mode (response_format)
+       - MOST RELIABLE: Provider enforces valid JSON at the API level
+       - Full response logged after completion
+       - NO progress logs during parsing (waits for complete response)
+       - Recommended for: Production, BCAI, when reliability is critical
+    
+    2. STREAMING + STRUCTURED (use_streaming=True, use_structured_outputs=True)
+       - Manually injects JSON schema into prompt, parses response after streaming
+       - Progress logs every 5 seconds during parsing
+       - Guardrails detect infinite loops (repetition, excessive newlines)
+       - LESS RELIABLE: Depends on LLM following schema instruction
+       - Recommended for: Development, debugging, when you need progress visibility
+    
+    3. NON-STREAMING + NON-STRUCTURED (use_streaming=False, use_structured_outputs=False)
+       - Fallback mode, not recommended
+       - No JSON enforcement, manual parsing
+    
+    Summary:
+    | Mode                    | Reliability | Progress Logs | Use Case            |
+    |-------------------------|-------------|---------------|---------------------|
+    | streaming=False         | Highest     | No            | Production, BCAI    |
+    | streaming=True          | Medium      | Yes           | Development         |
+    """
 
     provider: Literal["openai", "bcai", "internal", "mock"] = "openai"
     model: str = "gpt-4o-mini"
@@ -24,11 +53,22 @@ class LLMSettings(BaseModel):
     api_key: str | None = Field(default=None, repr=False)
     timeout_seconds: float = 120.0
     max_retries: int = 2
+    
+    # Structured outputs: Use native JSON mode (response_format) for reliable parsing
+    # Both streaming=True and streaming=False support structured outputs, but they
+    # use different mechanisms (see class docstring for details)
     use_structured_outputs: bool = True
+    
+    # Responses API: Use OpenAI's responses API (only for OpenAI provider)
     use_responses_api: bool = True
+    
+    # Streaming mode: Trade reliability for observability
+    # - False (recommended): Uses native JSON mode, most reliable, no progress logs
+    # - True: Shows progress every 5s, guardrails detect loops, less reliable JSON
     use_streaming: bool = True
     
-    # Streaming guardrails to prevent infinite loops
+    # Streaming guardrails (only apply when use_streaming=True)
+    # These detect and stop infinite loops in LLM responses
     streaming_max_chars: int = 50000  # Stop streaming after this many characters
     streaming_repetition_window: int = 200  # Check last N chars for repetition
     streaming_repetition_threshold: float = 0.8  # Stop if >X% same character

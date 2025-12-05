@@ -207,8 +207,8 @@ The dashboard stores uploaded files under `static/uploads/` for inline previews.
 # LLM Settings
 LLM__PROVIDER=openai  # Options: openai, bcai, mock
 LLM__MODEL=gpt-4o-mini
-LLM__USE_STRUCTURED_OUTPUTS=true  # Use native JSON mode for reliability
-LLM__USE_STREAMING=false          # Disable for structured outputs
+LLM__USE_STRUCTURED_OUTPUTS=true  # Enable structured JSON output
+LLM__USE_STREAMING=false          # false=native JSON mode (reliable), true=progress logs
 
 # Chunking Strategy
 CHUNKING__STRATEGY=component           # "component", "hybrid", or "fixed"
@@ -241,7 +241,11 @@ VECTOR_STORE__PERSIST_DIR=artifacts/vector_store_dev
 
 **Component-Aware Chunking:** The `component` strategy (default) preserves document structure by keeping tables, images, and text blocks intact. This enables downstream RAG systems to filter by component type and provides better semantic boundaries than fixed-size chunking.
 
-**Structured Outputs:** The parsing and cleaning stages use LlamaIndex's `as_structured_llm()` API with native JSON mode for reliable structured output extraction. Streaming can be enabled for observability at the cost of disabling native structured output.
+**Structured Outputs:** The parsing and cleaning stages use structured JSON output for reliable extraction. Two modes are available:
+- `USE_STREAMING=false` (recommended): Uses native JSON mode via `as_structured_llm()` for maximum reliability
+- `USE_STREAMING=true`: Shows progress logs every 5s but uses manual JSON parsing (less reliable)
+
+Both modes work with `USE_STRUCTURED_OUTPUTS=true`. Use non-streaming for production/BCAI, streaming for development debugging.
 
 Install the required LlamaIndex extras before running the app (at minimum `pip install llama-index-core llama-index-llms-openai llama-index-embeddings-openai`). The bootstrapper (`src/app/adapters/llama_index/bootstrap.py`) wires these settings into `llama_index.core.Settings` during startup, keeping framework imports confined to the adapters layer.
 

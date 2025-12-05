@@ -15,6 +15,7 @@ from ...application.interfaces import ParsingLLM
 from ...config import PromptSettings
 from ...parsing.schemas import ParsedPage
 from ...prompts.loader import load_prompt
+from ...observability.llm_error_logger import log_llm_parsing_error
 
 logger = logging.getLogger("rag_pipeline.llm")
 
@@ -192,13 +193,24 @@ class ImageAwareParsingAdapter(ParsingLLM):
             stream_error_type: str | None = None
             stream_error_details: str | None = None
             
+            # Track timing for error logging
+            start_time = time.time()
+            content = ""
+            stream_error_type: str | None = None
+            stream_error_details: str | None = None
+            
             if self._use_streaming:
                 content, stream_error_type, stream_error_details = self._stream_chat_response(messages, document_id, page_number)
             else:
                 response = self._llm.chat(messages)
                 content = self._extract_content_from_response(response)
             
+            elapsed_time = time.time() - start_time
+            
             if content:
+                # Store raw content for error logging
+                raw_content = content
+                
                 # Try to extract JSON from markdown code fences if present
                 if "```json" in content:
                     start = content.find("```json") + 7
@@ -209,7 +221,34 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     end = content.find("```", start)
                     content = content[start:end].strip()
                 
-                parsed_page = ParsedPage.model_validate_json(content)
+                try:
+                    parsed_page = ParsedPage.model_validate_json(content)
+                except Exception as validation_exc:
+                    # Log the validation error with full context
+                    log_llm_parsing_error(
+                        document_id=document_id,
+                        page_number=page_number,
+                        error_type="json_validation_error",
+                        error_message=str(validation_exc),
+                        raw_response=raw_content,
+                        accumulated_stream=raw_content if self._use_streaming else None,
+                        llm_config={
+                            "llm_class": self._llm.__class__.__name__,
+                            "use_streaming": self._use_streaming,
+                            "use_structured_outputs": self._use_structured_outputs,
+                        },
+                        pixmap_path=pixmap_path,
+                        timing_info={
+                            "elapsed_seconds": elapsed_time,
+                        },
+                        extra_context={
+                            "stream_error_type": stream_error_type,
+                            "stream_error_details": stream_error_details,
+                            "content_after_extraction": content[:500] if content else None,
+                        },
+                    )
+                    raise  # Re-raise to be caught by outer exception handler
+                
                 # Ensure document_id and page_number match (LLM might get them wrong)
                 parsed_page = parsed_page.model_copy(
                     update={
@@ -236,6 +275,25 @@ class ImageAwareParsingAdapter(ParsingLLM):
                         document_id,
                         page_number,
                     )
+                    
+                    # Log partial success with guardrail hit
+                    log_llm_parsing_error(
+                        document_id=document_id,
+                        page_number=page_number,
+                        error_type=stream_error_type,
+                        error_message=stream_error_details or "Streaming guardrail triggered",
+                        accumulated_stream=raw_content,
+                        llm_config={
+                            "llm_class": self._llm.__class__.__name__,
+                            "use_streaming": self._use_streaming,
+                        },
+                        pixmap_path=pixmap_path,
+                        timing_info={"elapsed_seconds": elapsed_time},
+                        extra_context={
+                            "parsing_status": status,
+                            "components_extracted": len(parsed_page.components),
+                        },
+                    )
                 
                 return parsed_page
         except Exception as exc:
@@ -244,6 +302,21 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 document_id,
                 page_number,
                 exc,
+            )
+            
+            # Log the exception with whatever content we have
+            log_llm_parsing_error(
+                document_id=document_id,
+                page_number=page_number,
+                error_type="parsing_exception",
+                error_message=f"{type(exc).__name__}: {str(exc)}",
+                raw_response=content if 'content' in dir() else None,
+                llm_config={
+                    "llm_class": self._llm.__class__.__name__,
+                    "use_streaming": self._use_streaming,
+                    "use_structured_outputs": self._use_structured_outputs,
+                },
+                pixmap_path=pixmap_path,
             )
         return None
     
@@ -309,7 +382,16 @@ class ImageAwareParsingAdapter(ParsingLLM):
             
             # Call chat() on structured LLM wrapper
             # This should automatically use native structured output support
+            start_time = time.time()
             response = structured_llm.chat(messages)
+            elapsed_time = time.time() - start_time
+            
+            # Extract raw text for error logging
+            raw_response_text = None
+            if hasattr(response, "text"):
+                raw_response_text = response.text
+            elif hasattr(response, "message") and hasattr(response.message, "content"):
+                raw_response_text = str(response.message.content)
             
             # Extract Pydantic object from response.raw
             if hasattr(response, "raw") and isinstance(response.raw, ParsedPage):
@@ -322,11 +404,22 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     }
                 )
                 logger.debug(
-                    "✅ Structured API parsing succeeded for doc=%s page=%s (components: %d)",
+                    "✅ Structured API parsing succeeded for doc=%s page=%s in %.1fs (components: %d)",
                     document_id,
                     page_number,
+                    elapsed_time,
                     len(parsed_page.components),
                 )
+                
+                # Log full response at DEBUG level (non-streaming mode gives us complete response)
+                if raw_response_text:
+                    logger.debug(
+                        "📄 Full structured response for doc=%s page=%s:\n%s",
+                        document_id,
+                        page_number,
+                        raw_response_text[:5000] + ("..." if len(raw_response_text) > 5000 else ""),
+                    )
+                
                 return parsed_page
             elif hasattr(response, "text"):
                 # Fallback: try to parse from text (shouldn't happen with structured API)
@@ -335,14 +428,31 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     document_id,
                     page_number,
                 )
-                parsed_page = ParsedPage.model_validate_json(response.text)
-                parsed_page = parsed_page.model_copy(
-                    update={
-                        "document_id": document_id,
-                        "page_number": page_number,
-                    }
-                )
-                return parsed_page
+                try:
+                    parsed_page = ParsedPage.model_validate_json(response.text)
+                    parsed_page = parsed_page.model_copy(
+                        update={
+                            "document_id": document_id,
+                            "page_number": page_number,
+                        }
+                    )
+                    return parsed_page
+                except Exception as fallback_exc:
+                    # Log validation error
+                    log_llm_parsing_error(
+                        document_id=document_id,
+                        page_number=page_number,
+                        error_type="structured_api_validation_error",
+                        error_message=f"Fallback parse failed: {fallback_exc}",
+                        raw_response=response.text,
+                        llm_config={
+                            "llm_class": self._llm.__class__.__name__,
+                            "method": "structured_api",
+                        },
+                        pixmap_path=pixmap_path,
+                        timing_info={"elapsed_seconds": elapsed_time},
+                    )
+                    raise
             else:
                 logger.warning(
                     "Structured API response has unexpected format for doc=%s page=%s: %s",
@@ -350,12 +460,46 @@ class ImageAwareParsingAdapter(ParsingLLM):
                     page_number,
                     type(response),
                 )
+                # Log unexpected format
+                log_llm_parsing_error(
+                    document_id=document_id,
+                    page_number=page_number,
+                    error_type="unexpected_response_format",
+                    error_message=f"Response type: {type(response)}, expected .raw with ParsedPage",
+                    raw_response=raw_response_text,
+                    llm_config={
+                        "llm_class": self._llm.__class__.__name__,
+                        "method": "structured_api",
+                    },
+                    pixmap_path=pixmap_path,
+                    timing_info={"elapsed_seconds": elapsed_time},
+                    extra_context={
+                        "response_type": str(type(response)),
+                        "has_raw": hasattr(response, "raw"),
+                        "has_text": hasattr(response, "text"),
+                        "has_message": hasattr(response, "message"),
+                    },
+                )
         except Exception as exc:
             logger.warning(
                 "Structured API parsing failed for doc=%s page=%s: %s",
                 document_id,
                 page_number,
                 exc,
+            )
+            
+            # Log the exception
+            log_llm_parsing_error(
+                document_id=document_id,
+                page_number=page_number,
+                error_type="structured_api_exception",
+                error_message=f"{type(exc).__name__}: {str(exc)}",
+                raw_response=raw_response_text if 'raw_response_text' in dir() else None,
+                llm_config={
+                    "llm_class": self._llm.__class__.__name__,
+                    "method": "structured_api",
+                },
+                pixmap_path=pixmap_path,
             )
         return None
     
@@ -668,6 +812,7 @@ class ImageAwareParsingAdapter(ParsingLLM):
             return accumulated_content, error_type, error_details
             
         except Exception as exc:
+            elapsed_time = time.time() - start_time
             logger.error(
                 "❌ Streaming failed for doc=%s page=%s after %d chunks: %s",
                 document_id,
@@ -675,6 +820,28 @@ class ImageAwareParsingAdapter(ParsingLLM):
                 chunk_count,
                 exc,
             )
+            
+            # Log streaming exception with accumulated content
+            log_llm_parsing_error(
+                document_id=document_id,
+                page_number=page_number,
+                error_type="streaming_exception",
+                error_message=f"{type(exc).__name__}: {str(exc)}",
+                accumulated_stream=accumulated_content,
+                llm_config={
+                    "llm_class": self._llm.__class__.__name__,
+                    "use_streaming": True,
+                },
+                timing_info={
+                    "elapsed_seconds": elapsed_time,
+                    "time_to_first_token": (first_token_time - start_time) if first_token_time else None,
+                    "chunk_count": chunk_count,
+                },
+                extra_context={
+                    "chars_accumulated": len(accumulated_content),
+                },
+            )
+            
             return accumulated_content, "streaming_exception", f"{type(exc).__name__}: {str(exc)}"
 
     def _extract_content_from_response(self, response: Any) -> str:
