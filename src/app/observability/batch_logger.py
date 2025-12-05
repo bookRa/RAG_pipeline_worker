@@ -45,7 +45,9 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
         self._trace = None
         self._current_spans: dict[str, Any] = {}
         
-        # Configure logger for clean output
+        # Configure logger for clean output, respecting centralized LOG_LEVEL
+        from .logging_setup import get_log_level_from_settings
+        
         if not logger.handlers:
             handler = logging.StreamHandler()
             formatter = logging.Formatter(
@@ -54,7 +56,8 @@ class BatchObservabilityRecorder(ObservabilityRecorder):
             )
             handler.setFormatter(formatter)
             logger.addHandler(handler)
-            logger.setLevel(logging.INFO)
+        # Use centralized log level from settings
+        logger.setLevel(get_log_level_from_settings())
 
     def record_event(self, stage: str, details: Mapping[str, Any] | None = None) -> None:
         """Record event with clean, minimal logging format."""

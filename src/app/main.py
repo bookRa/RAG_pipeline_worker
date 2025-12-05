@@ -1,5 +1,4 @@
 from pathlib import Path
-import logging
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -9,11 +8,13 @@ from .api.routers import router as pipeline_router
 from .api.batch_routers import router as batch_router
 from .api.batch_dashboard import router as batch_dashboard_router
 from .config import settings
+from .observability.logging_setup import setup_logging
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Reduce noise from uvicorn access logs (dashboard polling, static files, etc.)
-logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+# Configure logging from settings (LOG_LEVEL in .env)
+# This is the SINGLE source of truth for log level configuration
+setup_logging()
 
 app = FastAPI(title=settings.app_name)
 app.include_router(pipeline_router)

@@ -10,13 +10,17 @@ LOGGER_NAME = "rag_pipeline"
 
 
 def _build_logger() -> logging.Logger:
+    """Build logger that respects the centralized LOG_LEVEL configuration."""
+    from .logging_setup import get_log_level_from_settings
+    
     logger = logging.getLogger(LOGGER_NAME)
     if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    # Use centralized log level from settings
+    logger.setLevel(get_log_level_from_settings())
     return logger
 
 

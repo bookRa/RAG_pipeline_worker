@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     """Global application configuration."""
 
     app_name: str = "RAG Document Pipeline"
+    
+    # Logging configuration - SINGLE SOURCE OF TRUTH for log level
+    # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    log_level: str = Field(default="INFO", description="Application log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    
     llm: LLMSettings = LLMSettings()
     embeddings: EmbeddingSettings = EmbeddingSettings()
     chunking: ChunkingSettings = ChunkingSettings()
