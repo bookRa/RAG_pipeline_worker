@@ -406,12 +406,6 @@ Every prompt change should be a git commit with a clear message explaining why t
 
 ---
 
-## Future: Langfuse Integration
+## Future Enhancements
 
-**Coming soon**: Migrate prompts to Langfuse for:
-- UI-based prompt editing
-- Automatic version tracking
-- A/B testing built-in
-- Quality metrics per prompt version
-
-See [`Observability_Integration_TODO.md`](../Observability_Integration_TODO.md) for timeline.
+**Langfuse Integration**: Consider migrating prompts to Langfuse for UI-based editing, automatic version tracking, and built-in A/B testing with quality metrics per prompt version. See [Langfuse_User_Guide.md](../Langfuse_User_Guide.md) for current tracing setup.

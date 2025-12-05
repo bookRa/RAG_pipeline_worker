@@ -78,17 +78,18 @@ RAG_pipeline_worker/
 │   ├── ingestion/
 │   └── runs/
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── Pipeline_Quick_Reference.md
-│   ├── Pipeline_Data_Flow_and_Observability_Report.md
-│   ├── LLM_Integration_Implementation_Guide.md
-│   ├── Observability_Integration_TODO.md
+│   ├── ARCHITECTURE.md             # Hexagonal architecture guide
+│   ├── Pipeline_Quick_Reference.md # Data flow cheat sheet
+│   ├── LLM_Integration_Patterns.md # LLM architecture patterns
+│   ├── TESTING.md                  # Test suite documentation
+│   ├── Langfuse_User_Guide.md      # Observability guide
+│   ├── BCAI_Setup.md               # Boeing AI integration
+│   ├── LOG_LEVEL_GUIDE.md          # Logging configuration
 │   ├── prompts/                    # LLM prompt templates
 │   │   ├── parsing/
 │   │   ├── cleaning/
 │   │   └── summarization/
-│   └── research/
-│       └── README.md
+│   └── research/                   # Research artifacts
 ├── src/
 │   └── app/
 │       ├── api/
@@ -293,7 +294,7 @@ Set `ENABLE_LANGFUSE=false` (default) to fall back to structured logging without
 
 1. Read the [Pipeline Quick Reference](docs/Pipeline_Quick_Reference.md) for data flow and storage locations
 2. Review [ARCHITECTURE.md](docs/ARCHITECTURE.md) for hexagonal architecture principles
-3. Check [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) for comprehensive deep dive
+3. Check [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) for how LLMs power each stage
 
 **Making Your First Change:**
 
@@ -402,33 +403,20 @@ Key test files:
 ## Documentation
 
 ### For New Developers
-- [README](README.md) - Start here for setup and overview (you are here)
-- [Quick Reference](docs/Pipeline_Quick_Reference.md) - Data flow cheat sheet and common operations
-- [Architecture Guide](docs/ARCHITECTURE.md) - Hexagonal patterns and best practices
+- **[README](README.md)** - Start here for setup and overview (you are here)
+- **[Quick Reference](docs/Pipeline_Quick_Reference.md)** - Data flow cheat sheet and common operations
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - Hexagonal patterns and best practices
+- **[Testing Guide](docs/TESTING.md)** - Comprehensive test suite documentation
+
+### Technical Deep Dives
+- **[LLM Integration Patterns](docs/LLM_Integration_Patterns.md)** - How LLMs power each pipeline stage with architecture patterns
+- **[Langfuse User Guide](docs/Langfuse_User_Guide.md)** - Tracing, observability, and debugging with Langfuse
+
+### Configuration & Operations
 - **[BCAI Setup](docs/BCAI_Setup.md)** - Configure Boeing Conversational AI integration
-- [Testing Guide](docs/TESTING.md) - **NEW!** Comprehensive test suite documentation and running instructions
+- **[Log Level Guide](docs/LOG_LEVEL_GUIDE.md)** - Configure logging verbosity
+- **[Prompts Guide](docs/prompts/README.md)** - Tune LLM behavior across pipeline stages
 
-### Deep Dives
-- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
-- [Pipeline Data Flow Report](docs/Pipeline_Data_Flow_and_Observability_Report.md) - Comprehensive stage-by-stage analysis
-- [LLM Integration Guide](docs/LLM_Integration_Implementation_Guide.md) - Technical implementation details for LlamaIndex adapters
-- [LLM Integration Patterns](docs/LLM_Integration_Patterns.md) - Complete guide to LLM usage throughout pipeline with architecture patterns and data flow diagram
-- [Batch Processing](docs/Batch_Processing_Implementation_Summary.md) - Comprehensive guide to batch processing with parallelism, rate limiting, and observability
-- [Batch Observability Quick Start](docs/Batch_Observability_Quick_Start.md) - Get started with clean logging and Langfuse tracing for batch operations
-
-### Implementation Records
-- [Pipeline Improvements Status](docs/Pipeline_Improvements_Implementation_Status.md) - Component-aware chunking and contextual retrieval implementation
-- [Structured Output Summary](docs/Structured_Output_Implementation_Summary.md) - LlamaIndex best practices for reliable JSON extraction
-
-### Next Steps
-- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration plan
-- [Langfuse Usage Guide](docs/Langfuse_User_Guide.md) - How we instrument traces and inspect runs in the Langfuse UI
-- [Observability TODO](docs/Observability_Integration_TODO.md) - Langfuse tracing and Ragas evaluation integration roadmap
-- [DocumentDB Integration](docs/DocumentDB_Integration_Summary.md) - Vector store persistence with AWS DocumentDB
-
-### Prompts & Research
-- [Prompts Guide](docs/prompts/README.md) - How to tune LLM behavior across pipeline stages
-- [Research](docs/research/) - LlamaIndex API research and integration patterns
-
-### Agent Workflow
-- [AGENTS.md](AGENTS.md) - Specification-driven development workflow for research → planning → implementation
+### Research & Development
+- **[Research](docs/research/)** - LlamaIndex API research and integration patterns
+- **[AGENTS.md](AGENTS.md)** - Specification-driven development workflow for research → planning → implementation

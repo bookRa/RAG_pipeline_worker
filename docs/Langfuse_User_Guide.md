@@ -42,6 +42,6 @@ This guide explains how our pipeline emits Langfuse traces and how engineers can
 | Images don’t render in Langfuse | Verify the pixmap entry includes a `data:image/png;base64,...` URI. Regenerate the pixmaps if the file was deleted locally. |
 | LLM observation still named `LlamaIndex_completion` | Update `PipelineLangfuseHandler` heuristics if you introduce a brand-new prompt; add a `PROMPT_LABELS` entry so the handler can rename it. |
 
-For deeper architectural context see `docs/Pipeline_Data_Flow_and_Observability_Report.md`. For roadmap work items see `docs/Observability_Integration_TODO.md`.
+For deeper architectural context see [ARCHITECTURE.md](ARCHITECTURE.md). For prompt tuning see [prompts/README.md](prompts/README.md).
 
 

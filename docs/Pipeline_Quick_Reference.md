@@ -673,15 +673,7 @@ for page_num, parsed_page in parsed_pages.items():
 
 ---
 
-## Next Steps
-
-1. Read the full report: `Pipeline_Data_Flow_and_Observability_Report.md`
-2. Review action items: `Observability_Integration_TODO.md`
-3. Set up Langfuse tracing (highest ROI)
-4. Fix document summarization (quick win)
-5. Build HITL review workflow (high value)
-
 ---
 
-**Questions?** See the detailed report or ask the team!
+**Questions?** See the [Architecture Guide](ARCHITECTURE.md) or ask the team!
 

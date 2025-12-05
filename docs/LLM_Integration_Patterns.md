@@ -442,7 +442,7 @@ Summarization does not use structured outputs because the response is plain text
 - **Validation**: Pydantic ensures all required fields are present and typed correctly
 - **Developer Experience**: Type hints work in IDEs, reducing bugs
 
-See [`docs/Structured_Output_Implementation_Summary.md`](Structured_Output_Implementation_Summary.md) for full implementation details.
+See `src/app/adapters/llama_index/parsing_adapter.py` and `cleaning_adapter.py` for implementation details.
 
 ---
 
@@ -596,21 +596,11 @@ See `tests_contracts/test_openai_contracts.py` for examples.
 
 ---
 
-## Next Steps
-
-- **Observability**: Integrate [Langfuse](https://langfuse.com/) to trace LLM calls, track token usage, and version prompts
-- **Prompt Optimization**: Use [DSPy](https://github.com/stanfordnlp/dspy) or [PromptFoo](https://www.promptfoo.dev/) for automated prompt tuning
-- **Evaluation**: Add [Ragas](https://docs.ragas.io/) for RAG evaluation (context precision, answer relevance)
-- **Caching**: Cache LLM responses (especially parsing) to reduce costs on repeated pipeline runs
-
-See [`Observability_Integration_TODO.md`](Observability_Integration_TODO.md) for full roadmap.
-
----
-
 ## Related Documentation
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) - Overall system architecture
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) - Overall system architecture and hexagonal patterns
 - [`docs/prompts/README.md`](prompts/README.md) - Prompt tuning guide
-- [`Structured_Output_Implementation_Summary.md`](Structured_Output_Implementation_Summary.md) - Structured output deep dive
 - [`Pipeline_Quick_Reference.md`](Pipeline_Quick_Reference.md) - Pipeline data flow cheat sheet
+- [`Langfuse_User_Guide.md`](Langfuse_User_Guide.md) - LLM tracing and observability
+- [`TESTING.md`](TESTING.md) - Test suite documentation
 
