@@ -121,6 +121,8 @@ def setup_logging() -> None:
     logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("langfuse").setLevel(logging.WARNING)
+    logging.getLogger("pdfminer").setLevel(logging.WARNING)
+    logging.getLogger("multipart").setLevel(logging.WARNING)
     
     # Log the configuration (visible at INFO+ levels)
     startup_logger = logging.getLogger("rag_pipeline.startup")
