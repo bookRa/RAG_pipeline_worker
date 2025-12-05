@@ -361,17 +361,95 @@ class BCAILLM(LlamaIndexLLM):
         if hasattr(image_block, "image") and image_block.image:
             mimetype = getattr(image_block, "image_mimetype", "image/png")
             image_data = image_block.image
+            
+            # Normalize image data to clean base64 string (cross-platform fix)
+            image_data = self._normalize_base64_data(image_data)
+            
             logger.debug(
                 f"      Found 'image' attribute with raw base64 data, "
-                f"mimetype={mimetype}, data_len={len(image_data) if image_data else 0}"
+                f"mimetype={mimetype}, data_len={len(image_data) if image_data else 0}, "
+                f"data_type={type(image_block.image).__name__}"
             )
             if image_data:
                 logger.debug(f"      Raw image data prefix: {image_data[:80]}...")
                 logger.debug(f"      Raw image data suffix: ...{image_data[-40:]}")
-            return f"data:{mimetype};base64,{image_block.image}"
+            return f"data:{mimetype};base64,{image_data}"
         
         logger.warning("      Could not resolve image URL: no url, path, or image attribute found")
         return None
+
+    def _normalize_base64_data(self, data: Any) -> str:
+        """Normalize base64 data to a clean string.
+        
+        Handles cross-platform differences in how image data might be represented:
+        - bytes vs str
+        - repr() strings (e.g., "b'...'")
+        - Extra whitespace or newlines
+        
+        Args:
+            data: Raw image data (could be bytes, str, or other)
+            
+        Returns:
+            Clean base64 string containing only valid base64 characters
+        """
+        if data is None:
+            return ""
+        
+        # Log the original type for debugging
+        original_type = type(data).__name__
+        
+        # Handle bytes
+        if isinstance(data, bytes):
+            logger.debug(f"      Normalizing base64: converting from bytes ({len(data)} bytes)")
+            data = data.decode("utf-8", errors="replace")
+        
+        # Convert to string if not already
+        if not isinstance(data, str):
+            logger.debug(f"      Normalizing base64: converting from {original_type} to str")
+            data = str(data)
+        
+        # Check for repr'd bytes string (e.g., "b'iVBORw0...'")
+        # This can happen if someone accidentally str(bytes_object) instead of decode
+        if data.startswith("b'") and data.endswith("'"):
+            logger.warning(f"      Normalizing base64: detected repr'd bytes string, stripping b'...'")
+            data = data[2:-1]
+            # Handle escape sequences that might be in repr'd strings
+            try:
+                data = data.encode("utf-8").decode("unicode_escape")
+            except Exception as e:
+                logger.warning(f"      Failed to decode escape sequences: {e}")
+        
+        # Also check for b"..." format
+        if data.startswith('b"') and data.endswith('"'):
+            logger.warning(f"      Normalizing base64: detected repr'd bytes string (double quotes), stripping b\"...\"")
+            data = data[2:-1]
+            try:
+                data = data.encode("utf-8").decode("unicode_escape")
+            except Exception as e:
+                logger.warning(f"      Failed to decode escape sequences: {e}")
+        
+        # Strip whitespace and newlines (sometimes added by encoders)
+        data = data.strip()
+        data = data.replace("\n", "").replace("\r", "").replace(" ", "")
+        
+        # Validate that we have valid base64 characters
+        valid_base64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+        invalid_chars = [c for c in data[:200] if c not in valid_base64_chars]
+        
+        if invalid_chars:
+            logger.warning(
+                f"      Normalizing base64: found {len(invalid_chars)} invalid chars in first 200: {invalid_chars[:10]}"
+            )
+            # Remove invalid characters
+            original_len = len(data)
+            data = "".join(c for c in data if c in valid_base64_chars)
+            logger.warning(f"      Normalizing base64: removed invalid chars, length {original_len} -> {len(data)}")
+        
+        # Log final state
+        if original_type != "str" or invalid_chars:
+            logger.debug(f"      Normalizing base64: complete, final length={len(data)}")
+        
+        return data
 
     def _encode_image_file(self, path: str) -> str:
         """Encode an image file to a base64 data URL."""

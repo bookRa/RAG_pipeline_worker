@@ -28,6 +28,7 @@ from typing import Literal
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 # Logger names used throughout the application
+# These loggers will have their level set from LOG_LEVEL and will propagate to root
 KNOWN_LOGGERS = [
     "rag_pipeline",                                    # Main pipeline logger
     "batch_pipeline",                                  # Batch processing logger
@@ -36,6 +37,13 @@ KNOWN_LOGGERS = [
     "src.app.adapters.llama_index.cleaning_adapter",  # Cleaning adapter
     "src.app.services",                               # Services
     "src.app.api",                                    # API routes
+]
+
+# Loggers that have their own handlers (in logger.py and batch_logger.py)
+# These should NOT propagate to avoid duplicate logs
+LOGGERS_WITH_OWN_HANDLERS = [
+    "rag_pipeline",
+    "batch_pipeline",
 ]
 
 
@@ -108,9 +116,14 @@ def setup_logging() -> None:
     for logger_name in KNOWN_LOGGERS:
         logger = logging.getLogger(logger_name)
         logger.setLevel(log_level)
-        # Don't propagate to root to avoid duplicate logs
-        # (these loggers add their own handlers in _build_logger() and BatchObservabilityRecorder)
-        logger.propagate = False
+        
+        # Only disable propagation for loggers that have their own handlers
+        # (rag_pipeline and batch_pipeline have handlers in logger.py and batch_logger.py)
+        # Other loggers should propagate to root to use the centralized handler
+        if logger_name in LOGGERS_WITH_OWN_HANDLERS:
+            logger.propagate = False
+        else:
+            logger.propagate = True  # Ensure logs reach root handler
     
     # Reduce noise from third-party libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
