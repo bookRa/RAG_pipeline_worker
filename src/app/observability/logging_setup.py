@@ -109,7 +109,8 @@ def setup_logging() -> None:
         logger = logging.getLogger(logger_name)
         logger.setLevel(log_level)
         # Don't propagate to root to avoid duplicate logs
-        # logger.propagate = False
+        # (these loggers add their own handlers in _build_logger() and BatchObservabilityRecorder)
+        logger.propagate = False
     
     # Reduce noise from third-party libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
