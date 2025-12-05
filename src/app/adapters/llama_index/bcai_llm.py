@@ -20,7 +20,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
+import logging
 import requests
+
+# Module-level logger for consistent logging
+logger = logging.getLogger(__name__)
 
 try:
     from llama_index.core.base.llms.base import (
@@ -212,19 +216,33 @@ class BCAILLM(LlamaIndexLLM):
         """
         api_messages = []
         
-        for msg in messages:
-            role = str(msg.role) if hasattr(msg, "role") else "user"
+        logger.debug(f"Converting {len(messages)} ChatMessage(s) to BCAI format")
+        
+        for msg_idx, msg in enumerate(messages):
+            # Handle MessageRole enum: use .value if it's an enum, otherwise convert to string
+            if hasattr(msg, "role"):
+                role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+            else:
+                role = "user"
+            
+            logger.debug(f"  Message {msg_idx}: role={role}, has_blocks={hasattr(msg, 'blocks') and bool(msg.blocks)}")
             
             # Handle multi-modal content (text + images)
             if hasattr(msg, "blocks") and msg.blocks:
                 content = []
-                for block in msg.blocks:
+                logger.debug(f"    Processing {len(msg.blocks)} block(s)")
+                for block_idx, block in enumerate(msg.blocks):
+                    block_type = getattr(block, "block_type", "unknown")
+                    logger.debug(f"    Block {block_idx}: type={block_type}, attrs={list(vars(block).keys()) if hasattr(block, '__dict__') else 'N/A'}")
+                    
                     if hasattr(block, "block_type"):
                         if block.block_type == "text":
+                            text_content = str(block.text) if hasattr(block, "text") else str(block)
                             content.append({
                                 "type": "text",
-                                "text": str(block.text) if hasattr(block, "text") else str(block)
+                                "text": text_content
                             })
+                            logger.debug(f"      Text block: {len(text_content)} chars")
                         elif block.block_type == "image":
                             # Handle image blocks
                             image_url = self._resolve_image_url(block)
@@ -236,13 +254,78 @@ class BCAILLM(LlamaIndexLLM):
                                         "detail": "high"
                                     }
                                 })
+                                # Log image details
+                                self._log_image_debug_info(image_url, block_idx)
+                            else:
+                                logger.warning(f"      Image block {block_idx}: Failed to resolve image URL")
                 api_messages.append({"role": role, "content": content})
             else:
                 # Simple text content
                 content = str(msg.content) if hasattr(msg, "content") else str(msg)
                 api_messages.append({"role": role, "content": content})
+                logger.debug(f"    Simple text content: {len(content)} chars")
         
         return api_messages
+    
+    def _log_image_debug_info(self, image_url: str, block_idx: int) -> None:
+        """Log detailed debug information about an image."""
+        try:
+            if image_url.startswith("data:"):
+                # Parse data URL
+                # Format: data:image/png;base64,<base64_data>
+                header_end = image_url.find(",")
+                if header_end > 0:
+                    header = image_url[:header_end]
+                    base64_data = image_url[header_end + 1:]
+                    
+                    # Extract mimetype
+                    mimetype = "unknown"
+                    if ":" in header and ";" in header:
+                        mimetype = header.split(":")[1].split(";")[0]
+                    
+                    # Calculate sizes
+                    base64_len = len(base64_data)
+                    # Base64 encodes 3 bytes as 4 chars, so decoded size is ~75% of base64 length
+                    estimated_bytes = int(base64_len * 0.75)
+                    estimated_kb = estimated_bytes / 1024
+                    estimated_mb = estimated_kb / 1024
+                    
+                    # Estimate tokens (rough: ~85 tokens per 512x512 tile for high detail)
+                    # This is a very rough estimate based on OpenAI's documentation
+                    estimated_tokens = max(85, int(estimated_kb / 10) * 85)
+                    
+                    # Check if base64 looks valid (should only contain valid base64 chars)
+                    valid_base64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+                    sample = base64_data[:100]
+                    invalid_chars = [c for c in sample if c not in valid_base64_chars]
+                    
+                    logger.debug(
+                        f"      Image block {block_idx}: mimetype={mimetype}, "
+                        f"base64_len={base64_len:,} chars, "
+                        f"estimated_size={estimated_kb:.1f}KB ({estimated_mb:.2f}MB), "
+                        f"estimated_tokens=~{estimated_tokens:,}"
+                    )
+                    logger.debug(f"      Image base64 prefix (first 80 chars): {base64_data[:80]}...")
+                    logger.debug(f"      Image base64 suffix (last 40 chars): ...{base64_data[-40:]}")
+                    
+                    if invalid_chars:
+                        logger.warning(f"      WARNING: Found invalid base64 chars in sample: {invalid_chars[:10]}")
+                    
+                    # Try to validate base64 by decoding a small sample
+                    try:
+                        # Just try to decode to verify it's valid base64
+                        # Add padding if needed
+                        padded = base64_data + "=" * (4 - len(base64_data) % 4) if len(base64_data) % 4 else base64_data
+                        test_decode = base64.b64decode(padded[:100] + "==")
+                        logger.debug(f"      Base64 validation: OK (sample decoded successfully)")
+                    except Exception as e:
+                        logger.warning(f"      Base64 validation: FAILED - {e}")
+                else:
+                    logger.warning(f"      Image block {block_idx}: Invalid data URL format (no comma separator)")
+            else:
+                logger.debug(f"      Image block {block_idx}: External URL = {image_url[:100]}...")
+        except Exception as e:
+            logger.warning(f"      Image debug logging failed: {e}")
 
     def _resolve_image_url(self, image_block: Any) -> str | None:
         """Resolve an image block to a data URL for BCAI.
@@ -252,29 +335,52 @@ class BCAILLM(LlamaIndexLLM):
         - File paths to images
         - ImageDocument objects
         """
+        logger.debug(f"      Resolving image URL from block: {type(image_block).__name__}")
+        
+        # Log available attributes for debugging
+        if hasattr(image_block, "__dict__"):
+            attrs = {k: type(v).__name__ for k, v in vars(image_block).items()}
+            logger.debug(f"      Image block attributes: {attrs}")
+        
         # Check if already a data URL
         if hasattr(image_block, "url") and image_block.url:
+            logger.debug(f"      Found 'url' attribute, value starts with: {str(image_block.url)[:50]}...")
             if image_block.url.startswith("data:"):
+                logger.debug("      Using existing data URL from 'url' attribute")
                 return image_block.url
             # Try to load from file path
+            logger.debug(f"      Treating 'url' as file path, encoding from: {image_block.url}")
             return self._encode_image_file(image_block.url)
         
         # Check for path attribute
         if hasattr(image_block, "path") and image_block.path:
+            logger.debug(f"      Found 'path' attribute, encoding from: {image_block.path}")
             return self._encode_image_file(image_block.path)
         
-        # Check for image data
+        # Check for image data (raw base64 string)
         if hasattr(image_block, "image") and image_block.image:
             mimetype = getattr(image_block, "image_mimetype", "image/png")
+            image_data = image_block.image
+            logger.debug(
+                f"      Found 'image' attribute with raw base64 data, "
+                f"mimetype={mimetype}, data_len={len(image_data) if image_data else 0}"
+            )
+            if image_data:
+                logger.debug(f"      Raw image data prefix: {image_data[:80]}...")
+                logger.debug(f"      Raw image data suffix: ...{image_data[-40:]}")
             return f"data:{mimetype};base64,{image_block.image}"
         
+        logger.warning("      Could not resolve image URL: no url, path, or image attribute found")
         return None
 
     def _encode_image_file(self, path: str) -> str:
         """Encode an image file to a base64 data URL."""
         try:
             file_path = Path(path)
+            logger.debug(f"      Encoding image file: {file_path}")
+            
             if not file_path.exists():
+                logger.warning(f"      Image file does not exist: {file_path}")
                 return None
             
             # Determine mimetype from extension
@@ -289,9 +395,16 @@ class BCAILLM(LlamaIndexLLM):
             mimetype = mimetype_map.get(ext, "image/png")
             
             data = file_path.read_bytes()
+            file_size_kb = len(data) / 1024
+            logger.debug(f"      Read {len(data):,} bytes ({file_size_kb:.1f}KB) from file, mimetype={mimetype}")
+            
             encoded = base64.b64encode(data).decode("utf-8")
+            logger.debug(f"      Base64 encoded: {len(encoded):,} chars")
+            logger.debug(f"      Encoded prefix: {encoded[:80]}...")
+            
             return f"data:{mimetype};base64,{encoded}"
-        except Exception:
+        except Exception as e:
+            logger.error(f"      Failed to encode image file {path}: {e}")
             return None
 
     def _call_api(
@@ -334,13 +447,75 @@ class BCAILLM(LlamaIndexLLM):
         
         url = f"{self._api_base}/bcai-public-api/conversation"
         
-        # Log payload for debugging (first 200 chars of messages)
-        import logging
-        logger = logging.getLogger(__name__)
-        debug_payload = {k: v for k, v in payload.items() if k != "messages"}
-        if "messages" in payload:
-            debug_payload["messages"] = f"[{len(payload['messages'])} messages]"
-        logger.debug(f"BCAI request payload: {debug_payload}")
+        # Comprehensive debug logging for the API call
+        logger.debug("=" * 60)
+        logger.debug("BCAI API CALL DEBUG INFO")
+        logger.debug("=" * 60)
+        logger.debug(f"URL: {url}")
+        logger.debug(f"Model: {payload.get('model')}")
+        logger.debug(f"Temperature: {payload.get('temperature')}")
+        logger.debug(f"Max tokens: {payload.get('response_max_tokens')}")
+        logger.debug(f"Conversation mode: {payload.get('conversation_mode')}")
+        logger.debug(f"Response format: {payload.get('response_format', {}).get('type', 'none')}")
+        
+        # Log message details
+        msgs = payload.get("messages", [])
+        logger.debug(f"Number of messages: {len(msgs)}")
+        
+        total_text_chars = 0
+        total_images = 0
+        
+        for i, msg in enumerate(msgs):
+            role = msg.get("role", "unknown")
+            content = msg.get("content")
+            
+            if isinstance(content, str):
+                text_len = len(content)
+                total_text_chars += text_len
+                logger.debug(f"  Message {i} (role={role}): text with {text_len:,} chars")
+                # Show preview of text content
+                preview = content[:200].replace('\n', '\\n')
+                logger.debug(f"    Preview: {preview}...")
+            elif isinstance(content, list):
+                logger.debug(f"  Message {i} (role={role}): multimodal with {len(content)} parts")
+                for j, part in enumerate(content):
+                    part_type = part.get("type", "unknown")
+                    if part_type == "text":
+                        text_len = len(part.get("text", ""))
+                        total_text_chars += text_len
+                        logger.debug(f"    Part {j}: text with {text_len:,} chars")
+                    elif part_type == "image_url":
+                        total_images += 1
+                        img_url = part.get("image_url", {}).get("url", "")
+                        img_detail = part.get("image_url", {}).get("detail", "auto")
+                        if img_url.startswith("data:"):
+                            # Data URL
+                            comma_idx = img_url.find(",")
+                            if comma_idx > 0:
+                                header = img_url[:comma_idx]
+                                base64_data = img_url[comma_idx + 1:]
+                                estimated_kb = len(base64_data) * 0.75 / 1024
+                                logger.debug(
+                                    f"    Part {j}: image_url (data URL), "
+                                    f"header={header}, base64_len={len(base64_data):,}, "
+                                    f"~{estimated_kb:.1f}KB, detail={img_detail}"
+                                )
+                                # Show base64 snippet
+                                logger.debug(f"      Base64 start: {base64_data[:60]}...")
+                                logger.debug(f"      Base64 end: ...{base64_data[-30:]}")
+                        else:
+                            logger.debug(f"    Part {j}: image_url (external), url={img_url[:80]}...")
+        
+        # Estimate total tokens (very rough)
+        # ~4 chars per token for English text, ~85 tokens per image tile
+        estimated_text_tokens = total_text_chars // 4
+        estimated_image_tokens = total_images * 1000  # Rough estimate for high-detail images
+        total_estimated_tokens = estimated_text_tokens + estimated_image_tokens
+        
+        logger.debug("-" * 40)
+        logger.debug(f"TOTALS: {total_text_chars:,} text chars, {total_images} images")
+        logger.debug(f"ESTIMATED TOKENS: ~{estimated_text_tokens:,} (text) + ~{estimated_image_tokens:,} (images) = ~{total_estimated_tokens:,} total")
+        logger.debug("=" * 60)
         
         # Retry logic
         last_exception = None
